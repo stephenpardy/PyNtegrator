@@ -3,7 +3,7 @@ MCOrbits
 
 Orbital integration and likelihood testing for MCMC parameter searches of tidal fields.
 
-Python code acts as a wrapper for integration in C and for emcee package which searches parameter space.
+Python code acts as a wrapper for integration in C and for the emcee package which searches parameter space.
 
 Naive setup and running:
 
