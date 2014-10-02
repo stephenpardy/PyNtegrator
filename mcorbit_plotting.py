@@ -6,10 +6,10 @@ from mcorbit_data import *
 
 
 def draw_best_model(name,
-                    streamname,
+                    data,
+                    streamname='',
                     folder='./',
                     radec=True,
-                    datatype=3,
                     errors=False):
 
     mpl.rcParams.update({'font.size': 12})
@@ -55,18 +55,8 @@ def draw_best_model(name,
 
     stream_data = np.loadtxt("temp.dat")
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
-
-    if datatype == 1:
-        VRdata = VRdata[VRdata[:, 7] == 1]
-        ODdata = ODdata[ODdata[:, 4] == 1]
-    elif datatype == 2:
-        VRdata = VRdata[VRdata[:, 7] == 2]
-        ODdata = ODdata[ODdata[:, 4] == 2]
-    elif datatype == 3:  # All data
-        VRdata = VRdata[(VRdata[:, 7] == 2) | (VRdata[:, 7] == 1)]
-        ODdata = ODdata[(ODdata[:, 4] == 2) | (ODdata[:, 4] == 1)]
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     clusterpos = ([42.15, 73.59], [211.36370833, 28.53444444])[radec]
 
@@ -83,11 +73,11 @@ def draw_best_model(name,
 
 
 def draw_model_no(name,
+                  data,
                   modelnumber,
-                  streamname,
+                  streamname='',
                   folder='./',
                   radec=True,
-                  datatype=3,
                   errors=False):
     mpl.rcParams.update({'font.size': 12})
 
@@ -134,18 +124,8 @@ def draw_model_no(name,
     stream_data = np.loadtxt("temp.dat")
     print(stream_data.shape)
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
-
-    if datatype == 1:
-        VRdata = VRdata[VRdata[:, 7] == 1]
-        ODdata = ODdata[ODdata[:, 4] == 1]
-    elif datatype == 2:
-        VRdata = VRdata[VRdata[:, 7] == 2]
-        ODdata = ODdata[ODdata[:, 4] == 2]
-    elif datatype == 3:
-        VRdata = VRdata[(VRdata[:, 7] == 2) | (VRdata[:, 7] == 1)]
-        ODdata = ODdata[(ODdata[:, 4] == 2) | (ODdata[:, 4] == 1)]
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     clusterpos = ([42.15, 73.59], [211.36370833, 28.53444444])[radec]
 
@@ -162,7 +142,8 @@ def draw_model_no(name,
 
 
 def draw_median_model(name,
-                      streamname,
+                      data,
+                      streamname='',
                       folder='./',
                       radec=True,
                       datatype=3,
@@ -208,18 +189,8 @@ def draw_median_model(name,
 
     stream_data = np.loadtxt("temp.dat")
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
-
-    if datatype == 1:
-        VRdata = VRdata[VRdata[:, 7] == 1]
-        ODdata = ODdata[ODdata[:, 4] == 1]
-    elif datatype == 2:
-        VRdata = VRdata[VRdata[:, 7] == 2]
-        ODdata = ODdata[ODdata[:, 4] == 2]
-    elif datatype == 3:
-        VRdata = VRdata[(VRdata[:, 7] == 2) | (VRdata[:, 7] == 1)]
-        ODdata = ODdata[(ODdata[:, 4] == 2) | (ODdata[:, 4] == 1)]
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     clusterpos = ([42.15, 73.59], [211.36370833, 28.53444444])[radec]
 
@@ -276,6 +247,8 @@ def draw_model(mass_cluster,
                tpast,
                rgalsun,
                vLSR,
+               data,
+               streamname=''
                folder='./',
                radec=True,
                datatype=3,
@@ -304,18 +277,8 @@ def draw_model(mass_cluster,
 
     stream_data = np.loadtxt("temp.dat")
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
-
-    if datatype == 1:
-        VRdata = VRdata[VRdata[:, 7] == 1]
-        ODdata = ODdata[ODdata[:, 4] == 1]
-    elif datatype == 2:
-        VRdata = VRdata[VRdata[:, 7] == 2]
-        ODdata = ODdata[ODdata[:, 4] == 2]
-    elif datatype == 3:
-        VRdata = VRdata[(VRdata[:, 7] == 2) | (VRdata[:, 7] == 1)]
-        ODdata = ODdata[(ODdata[:, 4] == 2) | (ODdata[:, 4] == 1)]
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     clusterpos = ([42.15, 73.59], [211.36370833, 28.53444444])[radec]
 
@@ -323,31 +286,21 @@ def draw_model(mass_cluster,
                VRdata,
                ODdata,
                'Temp',
-               name='NGC5466',
-               streamname='NGC5466',
+               name=streamname,
+               streamname=streamname,
                folder=folder,
                radec=radec,
                clusterpos=clusterpos,
                errors=errors)
 
 
-def draw_temp_model(folder='./', radec=True, datatype=3, errors=False):
+def draw_temp_model(data, folder='./', radec=True, datatype=3, errors=False):
     mpl.rcParams.update({'font.size': 12})
 
     stream_data = np.loadtxt("temp.dat")
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
-
-    if datatype == 1:
-        VRdata = VRdata[VRdata[:, 7] == 1]
-        ODdata = ODdata[ODdata[:, 4] == 1]
-    elif datatype == 2:
-        VRdata = VRdata[VRdata[:, 7] == 2]
-        ODdata = ODdata[ODdata[:, 4] == 2]
-    elif datatype == 3:
-        VRdata = VRdata[(VRdata[:, 7] == 2) | (VRdata[:, 7] == 1)]
-        ODdata = ODdata[(ODdata[:, 4] == 2) | (ODdata[:, 4] == 1)]
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     clusterpos = ([42.15, 73.59], [211.36370833, 28.53444444])[radec]
 
@@ -363,11 +316,7 @@ def draw_temp_model(folder='./', radec=True, datatype=3, errors=False):
                errors=errors)
 
 
-def plot_all(name, folder='./'):
-
-    streamname = "NGC5466"
-    gal_latitude = 42.15
-    gal_longitude = 73.59
+def plot_all(streamname, name, folder='./', gal_latitude=42.15, gal_longitude=73.59):
     plot_convergence(name, streamname, folder=folder)
     param_histo_stream(name, streamname, folder=folder)
     param_histo_Halo(name, folder=folder)

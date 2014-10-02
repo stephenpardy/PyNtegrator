@@ -55,9 +55,6 @@ double const rtidemax = 1.e9;      //maximum value for rtide
 int const snapshot = 1;
 double const dtsnap = 5.0;           //timestep to save snapshot [Myr]
 
-//Likelihood parameters
-int data_type = 1;              //switch between spaced out points (Grillmair + Belokurov) (0) or close points (Belokurov) (1)
-
 //potential parameters
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
 
