@@ -839,39 +839,10 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
     sigma_mu2 = sigma_mu*sigma_mu;
 
 
-    int nr_OD;
-    if (!data_type) {
-        nr_OD = 20; //   3 by hand from tails of Belokurov + 17 from Lux
-    } else {
-        nr_OD = 3;    // 3 from Belokurov
-    }
-
-    double n_OD[nr_OD][6];
-
-    if (!data_type) {
-        for (i=0;i<nr_OD;i++){
-            for (j=0;j<6;j++){
-                n_OD[i][j] = n_OD_NGC5466(i, j);
-            }
-        }
-    } else {
-        // Lux points
-        for (i=0;i<nr_OD;i++){
-            for (j=0;j<6;j++){
-                n_OD[i][j] = n_Belo_NGC5466(i, j);
-            }
-        }
-    }
-
-    int nr_vr = 6;
-    double n_vr[nr_vr][10];
-
-    for (i=0;i<nr_vr;i++){
-        for (j=0;j<10;j++){
-            n_vr[i][j] = n_vr_NGC5466(i, j);
-        }
-    }
-
+    nr_OD = get_OD_data(ODfilename, );
+// Need a way to pass in n_OD
+    nr_vr = get_vr_data(vrfilename, );
+// and n_vr
 	double dl, db, dl2, db2, dvx, dvx2;
 	dl = sqrt(0.125*0.125+sigma_x2);
 	db = sqrt(0.125*0.125+sigma_x2);
@@ -881,7 +852,7 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
     dvx2 = dvx*dvx;
 
     for (j=0;j<nr_OD;j++) {
-        n_OD[j][5] =  sigma_x2+n_OD[j][4]*n_OD[j][4]/(8.0*log(2.0));//squared values of sigma_x plus sigma_obs
+        sigma_OD[j] =  sigma_x2+n_OD[j][4]*n_OD[j][4]/(8.0*log(2.0));//squared values of sigma_x plus sigma_obs
     }
 
 	for(i=0;i<N;i++) {
@@ -890,7 +861,7 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
 
         //velocities
         for (j=0;j<nr_vr;j++) {
-            n_vr[j][5] += exp(-0.5*((star[i][0]-n_vr[j][4])*(star[i][0]-n_vr[j][4])/dvx2 +
+            normvel[j] += exp(-0.5*((star[i][0]-n_vr[j][4])*(star[i][0]-n_vr[j][4])/dvx2 +
                                     (star[i][1]-n_vr[j][3])*(star[i][1]-n_vr[j][3])/dvx2 +
                                     (star[i][2]-n_vr[j][0])*(star[i][2]-n_vr[j][0])/(n_vr[j][1]*n_vr[j][1]+sigma_v2) +
                                     (star[i][3]-n_vr[j][6])*(star[i][3]-n_vr[j][6])/(n_vr[j][8]*n_vr[j][8]+sigma_mu2) +
@@ -899,8 +870,8 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
 
         //overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/n_OD[j][5] +
-                                (star[i][1]-n_OD[j][1])*(star[i][1]-n_OD[j][1])/n_OD[j][5]));
+            n_OD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/sigma_OD[j] +
+                                (star[i][1]-n_OD[j][1])*(star[i][1]-n_OD[j][1])/sigma_OD[j]));
         }
 
 	}
@@ -908,21 +879,21 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
     if (N) {
         //normalization velocities
         for (j=0;j<nr_vr;j++) {
-            n_vr[j][5] *= (1.0/(1.0*N*dvx2*sqrt(n_vr[j][1]*n_vr[j][1]+sigma_v2)
+            normvel[5] *= (1.0/(1.0*N*dvx2*sqrt(n_vr[j][1]*n_vr[j][1]+sigma_v2)
                                 *sqrt(n_vr[j][8]*n_vr[j][8]+sigma_mu2)
                                 *sqrt(n_vr[j][9]*n_vr[j][9]+sigma_mu2)));
         }
 
         //normalization overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] *=  (1.0/(1.0*N*n_OD[j][5]));
+            n_OD[j][2] *=  (1.0/(1.0*N*sigma_OD[j]));
         }
 
         //construction of final likelihood value
         chi2 = 0.0;
 
 		for (i=0;i<nr_OD;i++) chi2 += n_OD[i][3]*log(n_OD[i][2]+SMALL);
-        for (i=0;i<nr_vr;i++) chi2 += log(n_vr[i][5]+SMALL);
+        for (i=0;i<nr_vr;i++) chi2 += log(normvel[i]+SMALL);
 
 
 	} else {

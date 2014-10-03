@@ -4,6 +4,29 @@ import sys
 import scipy.optimize
 
 
+def load_OD(filename):
+    # n[][0] = ra*
+    # n[][1] = dec
+    # n[][3] = significance/weight
+    # n[][4] = FWHM
+    (ra, dec, weights, FWHM) = np.loadtxt(filename, unpack=True, delimiter=",")
+#{224, 21.0, 0.00000,  2.0000,  1.0000}
+
+def load_VR(filename):
+    (vr, dvr, ra, dec, rastar, mura, mudel, mura_e, mudel_e) = np.loadtxt(filename, unpack=True, delimiter=",")
+    # Helper to load radial velocity and propermotion data
+      # n_vr[][0] = vr
+      # n_vr[][1] = dvr
+      # n_vr[][2] = l
+      # n_vr[][3] = b
+      # n_vr[][4] = l*
+      # n_vr[][5] = #
+      # n_vr[][6] = mura
+      # n_vr[][7] = mudel
+      # n_vr[][8] = mura_e
+      # n_vr[][9] = mudel_e
+
+
 def get_pool(mpi=False, threads=None):
     """ Get a pool object to pass to emcee for parallel processing.
         If mpi is False and threads is None, pool is None.

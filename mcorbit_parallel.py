@@ -1,12 +1,11 @@
 import _orbit
 import numpy as np
-#from subprocess import call
 import emcee
 from math import *
 from random import random
 from random import gauss
 from myutils import *
-import sys  # alternatively use argparse package
+import sys
 from mcorbit_data import *
 from mcorbit_utils import *
 

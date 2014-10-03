@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib as mpl
 import _orbit
 from mcorbit_plot_utils import *
-from mcorbit_data import *
+from mcorbit_utils import *
 
 
 def draw_best_model(name,
@@ -211,8 +211,8 @@ def draw_last_model(folder='./', radec=True, datatype=3, errors=False):
 
     stream_data = np.loadtxt("temp.dat")
 
-    ODdata = NGC5466_OD()
-    VRdata = NGC5466_VR()
+    ODdata = load_OD(data)
+    VRdata = load_VR(data)
 
     if datatype == 1:
         VRdata = VRdata[VRdata[:, 7] == 1]
