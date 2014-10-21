@@ -1,5 +1,7 @@
 #include "orbit.h"
 #include "orbit_utils.h"
+#include <Python.h>
+#include <numpy/arrayobject.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -21,7 +23,9 @@ int orbit(double *fit,
           double sigma_v,
           double sigma_vx,
           double sigma_mu,
-          int newspaper) {
+          int newspaper,
+          PyArrayObject *n_OD,
+          PyArrayObject *n_VR) {
 
 
 	*fit = SUPERSMALL;
@@ -125,7 +129,7 @@ int orbit(double *fit,
     double tmax = tpast;
     double dtoutt = tpast;
     double t = tstart;
-    rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper);
+    rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper, n_OD, n_VR);
 
 
     //save whatever initial conditions for possible restarts
@@ -155,7 +159,7 @@ int orbit(double *fit,
     dtoutt = dtout;
     tmax = tfuture;
     if (radio) printf("\nt = %f\tdtout = %f\n",t,dtout);
-    err = rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper);
+    err = rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper, n_OD, n_VR);
 
     //}
 
@@ -182,7 +186,9 @@ int rk4_drv(double *t,
             double sign,
             double *parameter,
             double *fit,
-            int newspaper){
+            int newspaper,
+            PyArrayObject *n_OD,
+            PyArrayObject *n_VR){
 
     void write_snapshot_tail(double next_snap, double *xtemp, double *vtemp);
     void write_snapshot_cluster(double next_snap, double *xtemp, double *vtemp);
@@ -470,7 +476,7 @@ int rk4_drv(double *t,
 
     if (newspaper) fclose(fz);
     //if (snapshot) fclose(snapfile);
-    if (starcount) *fit = fitness(starcount, star, parameter[13], parameter[14], parameter[15], parameter[16]);
+    if (starcount) *fit = fitness(starcount, star, parameter[13], parameter[14], parameter[15], parameter[16], n_OD, n_VR);
 
 	for (i=0;i<NMAX;i++) free (star[i]);
 	free(star);
@@ -716,9 +722,9 @@ void getforce(double *x, double *v, double *a, double *parameter){
 
 /* ----------- force tail ----------- */
 void getforcetail(double *x, double *v, double *a, double *xc, double *parameter){
-	//double r1, r2, r3, 
+	//double r1, r2, r3,
     double r4;
-	//double a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z, 
+	//double a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z,
     double a4x, a4y, a4z;
 	double actualmass;
     //double q1, q2, qz, phi, C1, C2, C3, rhalo, vhalo;
@@ -824,7 +830,15 @@ void do_steptail(double dt, double *x, double *v, double *xc, double *vc, double
 }
 
 /* ---------- likelihood evaluation ----------- */
-double fitness(int N, double **star, double sigma_x, double sigma_v, double sigma_vx, double sigma_mu){
+double fitness(int N,
+               double **star,
+               double sigma_x,
+               double sigma_v,
+               double sigma_vx,
+               double sigma_mu,
+               PyArrayObject *n_OD,
+               PyArrayObject *n_VR){
+
 	if(radio) printf("\nGetting likelihood value...\n");
 	int i, j;
     double chi2;
@@ -837,12 +851,12 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
     sigma_v2 = sigma_v*sigma_v;
     sigma_vx2 = sigma_vx*sigma_vx;
     sigma_mu2 = sigma_mu*sigma_mu;
+    int nr_OD = PyArray_DIM(n_OD, 0);
+    int nr_VR = PyArray_DIM(n_VR, 0);
+    double sigma_OD[nr_OD];
+    double normvel[nr_VR];
 
 
-    nr_OD = get_OD_data(ODfilename, );
-// Need a way to pass in n_OD
-    nr_vr = get_vr_data(vrfilename, );
-// and n_vr
 	double dl, db, dl2, db2, dvx, dvx2;
 	dl = sqrt(0.125*0.125+sigma_x2);
 	db = sqrt(0.125*0.125+sigma_x2);
@@ -852,48 +866,59 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
     dvx2 = dvx*dvx;
 
     for (j=0;j<nr_OD;j++) {
-        sigma_OD[j] =  sigma_x2+n_OD[j][4]*n_OD[j][4]/(8.0*log(2.0));//squared values of sigma_x plus sigma_obs
+        sigma_OD[j] =  sigma_x2+*(double*)PyArray_GETPTR2(n_OD,j,4)**(double*)PyArray_GETPTR2(n_OD,j,4)/(8.0*log(2.0));//squared values of sigma_x plus sigma_obs
     }
 
 	for(i=0;i<N;i++) {
 
 		//if (star[i][0]>180.0) star[i][0] = star[i][0]-360.0; for use with galactic coordinates
 
-        //velocities
-        for (j=0;j<nr_vr;j++) {
-            normvel[j] += exp(-0.5*((star[i][0]-n_vr[j][4])*(star[i][0]-n_vr[j][4])/dvx2 +
-                                    (star[i][1]-n_vr[j][3])*(star[i][1]-n_vr[j][3])/dvx2 +
-                                    (star[i][2]-n_vr[j][0])*(star[i][2]-n_vr[j][0])/(n_vr[j][1]*n_vr[j][1]+sigma_v2) +
-                                    (star[i][3]-n_vr[j][6])*(star[i][3]-n_vr[j][6])/(n_vr[j][8]*n_vr[j][8]+sigma_mu2) +
-                                    (star[i][4]-n_vr[j][7])*(star[i][4]-n_vr[j][7])/(n_vr[j][9]*n_vr[j][9]+sigma_mu2) ));
+        //velocities... Grumble grumble... must be a better way to do this...
+        for (j=0;j<nr_VR;j++) {
+            normvel[j] += exp(-0.5*((star[i][0]-*(double*)PyArray_GETPTR2(n_VR,j,4))*(star[i][0]
+                -*(double*)PyArray_GETPTR2(n_VR,j,4))/dvx2 +
+                (star[i][1]-*(double*)PyArray_GETPTR2(n_VR,j,3))*(star[i][1]
+                -*(double*)PyArray_GETPTR2(n_VR,j,3))/dvx2 +
+                (star[i][2]-*(double*)PyArray_GETPTR2(n_VR,j,0))*(star[i][2]
+                    -*(double*)PyArray_GETPTR2(n_VR,j,0))
+                    /(*(double*)PyArray_GETPTR2(n_VR,j,1)*
+                        *(double*)PyArray_GETPTR2(n_VR,j,1)+sigma_v2) +
+                (star[i][3]-*(double*)PyArray_GETPTR2(n_VR,j,6))*(star[i][3]
+                    -*(double*)PyArray_GETPTR2(n_VR,j,6))
+                    /(*(double*)PyArray_GETPTR2(n_VR,j,8)*
+                        *(double*)PyArray_GETPTR2(n_VR,j,8)+sigma_mu2) +
+                (star[i][4]-*(double*)PyArray_GETPTR2(n_VR,j,7))*(star[i][4]
+                    -*(double*)PyArray_GETPTR2(n_VR,j,7))
+                    /(*(double*)PyArray_GETPTR2(n_VR,j,9)*
+                        *(double*)PyArray_GETPTR2(n_VR,j,9)+sigma_mu2) ));
         }
 
         //overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/sigma_OD[j] +
-                                (star[i][1]-n_OD[j][1])*(star[i][1]-n_OD[j][1])/sigma_OD[j]));
+            *(double*)PyArray_GETPTR2(n_OD,j,2) +=  exp(-0.5*((star[i][0]-*(double*)PyArray_GETPTR2(n_OD,j,0))*(star[i][0]-*(double*)PyArray_GETPTR2(n_OD,j,0))/sigma_OD[j] +
+                                (star[i][1]-*(double*)PyArray_GETPTR2(n_OD,j,1))*(star[i][1]-*(double*)PyArray_GETPTR2(n_OD,j,1))/sigma_OD[j]));
         }
 
 	}
 
     if (N) {
         //normalization velocities
-        for (j=0;j<nr_vr;j++) {
-            normvel[5] *= (1.0/(1.0*N*dvx2*sqrt(n_vr[j][1]*n_vr[j][1]+sigma_v2)
-                                *sqrt(n_vr[j][8]*n_vr[j][8]+sigma_mu2)
-                                *sqrt(n_vr[j][9]*n_vr[j][9]+sigma_mu2)));
+        for (j=0;j<nr_VR;j++) {
+            normvel[5] *= (1.0/(1.0*N*dvx2*sqrt(*(double*)PyArray_GETPTR2(n_VR,j,1)**(double*)PyArray_GETPTR2(n_VR,j,1)+sigma_v2)
+                                *sqrt(*(double*)PyArray_GETPTR2(n_VR,j,8)**(double*)PyArray_GETPTR2(n_VR,j,8)+sigma_mu2)
+                                *sqrt(*(double*)PyArray_GETPTR2(n_VR,j,9)**(double*)PyArray_GETPTR2(n_VR,j,9)+sigma_mu2)));
         }
 
         //normalization overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] *=  (1.0/(1.0*N*sigma_OD[j]));
+            *(double*)PyArray_GETPTR2(n_OD,j,2) *=  (1.0/(1.0*N*sigma_OD[j]));
         }
 
         //construction of final likelihood value
         chi2 = 0.0;
 
-		for (i=0;i<nr_OD;i++) chi2 += n_OD[i][3]*log(n_OD[i][2]+SMALL);
-        for (i=0;i<nr_vr;i++) chi2 += log(normvel[i]+SMALL);
+		for (i=0;i<nr_OD;i++) chi2 += *(double*)PyArray_GETPTR2(n_OD,i,3)*log(*(double*)PyArray_GETPTR2(n_OD,i,2)+SMALL);
+        for (i=0;i<nr_VR;i++) chi2 += log(normvel[i]+SMALL);
 
 
 	} else {

@@ -9,10 +9,15 @@ import sys
 from mcorbit_data import *
 from mcorbit_utils import *
 
+n_OD = []
+n_vr = []
+
 
 #Parallel tempering MCMC
 #Is this better??
 def Parallel_orbit():
+
+    global n_OD, n_VR
 
     pool = get_pool(mpi=True, threads=4)
 
@@ -23,6 +28,7 @@ def Parallel_orbit():
             print(j, sys.argv[j])
         name = sys.argv[1]
         ICS = sys.argv[2]
+        datafile = sys.argv[3]
         newspaper = 0  # suppress output to temporary file for performance
     else:
         name = ""
@@ -44,6 +50,8 @@ def Parallel_orbit():
           .reshape((ntemps, nwalkers, ndim)))
 
     IC = np.loadtxt(ICS)
+    n_OD = np.loadtxt(datafile+"_OD", dtype='double')
+    n_VR = np.loadtxt(datafile+"_VR", dtype='double')
     # Initial guesses for parameters in each of the chains
     while j < ntemps - 1:
         j += 1
@@ -98,7 +106,9 @@ def Parallel_orbit():
                                sigma_v,
                                sigma_vx,
                                sigma_mu,
-                               newspaper)
+                               newspaper,
+                               n_OD,
+                               n_VR)
             if fit > -2000:
                 i += 1
 
@@ -189,6 +199,8 @@ def Parallel_orbit():
 
 def loglikelihood(x):
 
+    global n_VR, n_OD
+
     if __name__ == '__main__':
         newspaper = 0  # suppress output to temporary file for performance
     else:
@@ -263,7 +275,9 @@ def loglikelihood(x):
                            sigma_v,
                            sigma_vx,
                            sigma_mu,
-                           newspaper)
+                           newspaper,
+                           n_OD,
+                           n_VR)
 
     if np.any(np.isnan(fit)):
         fit = Supersmall

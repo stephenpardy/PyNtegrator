@@ -2,7 +2,8 @@
 #include<stdlib.h>
 #include<math.h>
 #include<time.h>
-
+#include <Python.h>
+#include <numpy/arrayobject.h>
 
 //constants
 #define Pi 3.14159265
@@ -15,24 +16,96 @@
 
 
 //functions
-int orbit(double *fit, double mass_cluster, double pm_mu_delta, double pm_mu_alphacosdelta, double mass_halo, double distance_cluster, double mass_loss_rate, double q_halo, double r_halo, double tpast, double rgalsun, double vLSR, double sigma_x, double sigma_v, double sigma_vx, double sigma_mu, int newspaper);
-int rk4_drv(double *t, double tmax, double dtout, double mdiff, double *x, double *v, double vorz, double *parameter, double *fit, int newspaper);
-int rk4_drvtail(double *t, double tmax, double mdiff, double *x, double *v, double vorz, double *xc, double *vc, double *parameter, double next_snap_tail);
+
+int orbit(double *fit,
+          double mass_cluster,
+          double pm_mu_delta,
+          double pm_mu_alphacosdelta,
+          double mass_halo,
+          double distance_cluster,
+          double mass_loss_rate,
+          double q_halo,
+          double r_halo,
+          double tpast,
+          double rgalsun,
+          double vLSR,
+          double sigma_x,
+          double sigma_v,
+          double sigma_vx,
+          double sigma_mu,
+          int newspaper,
+          PyArrayObject *n_OD,
+          PyArrayObject *n_VR);
+
+int rk4_drv(double *t,
+            double tmax,
+            double dtout,
+            double mdiff,
+            double *x,
+            double *v,
+            double vorz,
+            double *parameter,
+            double *fit,
+            int newspaper,
+            PyArrayObject *n_OD,
+            PyArrayObject *n_VR);
+
+int rk4_drvtail(double *t,
+                double tmax,
+                double mdiff,
+                double *x,
+                double *v,
+                double vorz,
+                double *xc,
+                double *vc,
+                double *parameter,
+                double next_snap_tail);
+
 void getforce(double *x, double *v, double *a, double *parameter);
 void getforcetail(double *x, double *v, double *a, double *xc, double *parameter);
 void do_step(double dt, double *x, double *v, double *parameter);
 void do_steptail(double dt, double *x, double *v, double *xc, double *vc, double *parameter);
 double get_gauss(void);
-void convert(double *x, double *v, double *dsun, double *vrsun, double *vr, double *l, double *b, double *lcosb, double *RA, double *DEC, double *mu_alpha, double *mu_alphacosdelta, double *mu_delta, double *mutemp, double *PAtemp, int coordtype_coco, int vcoordtype, int radiococo, double vLSRtemp, double rgalsun);
-double fitness(int N, double **star, double sigma_x, double sigma_v, double sigma_vx, double sigma_mu);
+void convert(double *x,
+             double *v,
+             double *dsun,
+             double *vrsun,
+             double *vr,
+             double *l,
+             double *b,
+             double *lcosb,
+             double *RA,
+             double *DEC,
+             double *mu_alpha,
+             double *mu_alphacosdelta,
+             double *mu_delta,
+             double *mutemp,
+             double *PAtemp,
+             int coordtype_coco,
+             int vcoordtype,
+             int radiococo,
+             double vLSRtemp,
+             double rgalsun);
+
+double fitness(int N,
+               double **star,
+               double sigma_x,
+               double sigma_v,
+               double sigma_vx,
+               double sigma_mu,
+               PyArrayObject *n_OD,
+               PyArrayObject *n_VR);
+
 void shellsort_reverse_1d(double *array, int N);
 void shellsort_1d(double *array, int N);
 void shellsort(double **array, int N, int k);
 void shellsort_reverse(double **array, int N, int k);
 double *vector(long nl, long nh);
 void free_vector(double *v, long nl, long nh);
-void convert(double *xtemp, double *vtemp, double *dsuntemp, double *vrsuntemp, double *vrtemp, double *ltemp, double *btemp, double *lcosbtemp, double *RAtemp, double *DECtemp, double *mu_alphatemp, double *mu_alphacosdeltatemp, double *mu_deltatemp, double *mutemp, double *PAtemp, int coordtype_coco, int vcoordtype, int radiococo, double vLSRtemp, double rgalsun);
 
+//data
+int nr_OD;
+int nr_VR;
 
 //integration parameters
 double const dtout = 15.0;          //time step for output [Myr]
