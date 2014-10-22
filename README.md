@@ -10,12 +10,19 @@ Naive setup and running:
 python setup.py build_ext --inplace
 
 For a single temperature:
-python mcorbit_serial.py some_name_for_output some_IC_file
+python mcorbit_serial.py <OUTPUTFILE> <ICFILE> <DATAFILESTUB>
 
 For multiple temperatures:
-python mcorbit_parallel.py some_name_for_output some_IC_file
+python mcorbit_parallel.py <OUTPUTFILE> <ICFILE> <DATAFILESTUB>
 
 See ICS_Example for example of initial conditions file structure
+
+The data files should be named:
+    <DATAFILESTUB>_OD (for overdensity map)
+    <DATAFILESTUB>_VR (for radial velocity and proper motion data)
+
+TODO:
+    Add example data (from Pal 5?)
 
 /***************************************************************************
  *   Copyright (C) 2013, 2014 by Stephen Pardy, Ana Bonaca                 * 

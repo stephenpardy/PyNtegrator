@@ -9,6 +9,9 @@ import sys
 from mcorbit_data import *
 from mcorbit_utils import *
 
+n_OD = []
+n_vr = []
+
 
 def Serial_orbit():
     pool = get_pool(mpi=True, threads=2)
@@ -20,10 +23,14 @@ def Serial_orbit():
             print(j, sys.argv[j])
         name = sys.argv[1]
         ICS = sys.argv[2]
+        datafile = sys.argv[3]
         newspaper = 0  # suppress output to temporary file for performance
     else:
         name = ""
         newspaper = 1  # write each model to a temporary file for plotting
+
+    n_OD = np.loadtxt(datafile+"_OD", dtype='double')
+    n_VR = np.loadtxt(datafile+"_VR", dtype='double')
 
     # Set up MCMC
     nwalkers = 256  # Number of chains
@@ -91,7 +98,9 @@ def Serial_orbit():
                            sigma_v,
                            sigma_vx,
                            sigma_mu,
-                           newspaper)
+                           newspaper,
+                           n_OD,
+                           n_VR)
         if fit > -2000.:
             i += 1
 
@@ -160,6 +169,8 @@ def Serial_orbit():
 
 
 def loglikelihood(x):
+
+    global n_VR, n_OD
 
     if __name__ == '__main__':
         newspaper = 0  # suppress output to temporary file for performance
@@ -235,7 +246,9 @@ def loglikelihood(x):
                            sigma_v,
                            sigma_vx,
                            sigma_mu,
-                           newspaper)
+                           newspaper,
+                           n_OD,
+                           n_VR)
 
     if np.any(np.isnan(fit)):
         fit = Supersmall
