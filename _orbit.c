@@ -1,4 +1,5 @@
 #include <Python.h>
+
 #include <numpy/arrayobject.h>
 /* Docstrings */
 static char module_docstring[] = "This module provides an interface for running a Runge-Kutta streakline integrator using C.";
@@ -28,69 +29,45 @@ static PyObject *orbit_orbit(PyObject *self, PyObject *args)
 {
 
     int err;
-	double fit[1],
-		   mass_cluster,
+	double mass_cluster,
 		   pm_mu_delta,
 		   pm_mu_alphacosdelta,
-		   mass_halo,
 		   distance_cluster,
-		   mass_loss,
 		   q_halo,
 		   r_halo,
 		   tpast,
-		   rgalsun,
-		   vLSR,
 		   sigma_x,
 		   sigma_v,
 		   sigma_vx,
 		   sigma_mu;
 
-    int newspaper;
-    PyArrayObject *OD_data;
-    PyArrayObject *VR_data;
-
 	// Parse the input tuple
-	if (!PyArg_ParseTuple(args, "dddddddddddddddiOO",
+	if (!PyArg_ParseTuple(args, "ddddddddddd",
 								&mass_cluster,
 								&pm_mu_delta,
 								&pm_mu_alphacosdelta,
-								&mass_halo,
 								&distance_cluster,
-								&mass_loss,
 								&q_halo,
 								&r_halo,
 								&tpast,
-								&rgalsun,
-								&vLSR,
 								&sigma_x,
 								&sigma_v,
 								&sigma_vx,
-								&sigma_mu,
-								&newspaper,
-								&OD_data,
-								&VR_data))	// reads in input parameters
+								&sigma_mu))	// reads in input parameters
 		return NULL;
 
 	// Call the external C function to create the streakline model and return the likelihood
-	err = orbit(fit,
-				mass_cluster,
+	err = orbit(mass_cluster,
 				pm_mu_delta,
 				pm_mu_alphacosdelta,
-				mass_halo,
 				distance_cluster,
-				mass_loss,
 				q_halo,
 				r_halo,
 				tpast,
-				rgalsun,
-				vLSR,
 				sigma_x,
 				sigma_v,
 				sigma_vx,
-				sigma_mu,
-				newspaper,
-				OD_data,
-				VR_data);
+				sigma_mu);
 
     // Check if error raised
 	if(err!=0) {
@@ -99,6 +76,6 @@ static PyObject *orbit_orbit(PyObject *self, PyObject *args)
 	}
 
 	// Return likelihood value
-	return Py_BuildValue("d", fit[0]);
+	return Py_BuildValue("d", 0.0);
 
 }

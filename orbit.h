@@ -2,8 +2,8 @@
 #include<stdlib.h>
 #include<math.h>
 #include<time.h>
-#include <Python.h>
-#include <numpy/arrayobject.h>
+//#include <Python.h>
+//#include <numpy/arrayobject.h>
 
 //constants
 #define Pi 3.14159265
@@ -14,57 +14,40 @@
 #define SMALL 1.0E-3
 #define SUPERSMALL -1.E50
 
+struct Gal // companion galaxies
+{
+    double pos[3];
+    double vel[3];
+    double acc[3];
+    int ID;
+    double mass;
+};
 
 //functions
 
-int orbit(double *fit,
-          double mass_cluster,
+int orbit(double mass_cluster,
           double pm_mu_delta,
           double pm_mu_alphacosdelta,
-          double mass_halo,
           double distance_cluster,
-          double mass_loss_rate,
           double q_halo,
           double r_halo,
           double tpast,
-          double rgalsun,
-          double vLSR,
           double sigma_x,
           double sigma_v,
           double sigma_vx,
-          double sigma_mu,
-          int newspaper,
-          PyArrayObject *n_OD,
-          PyArrayObject *n_VR);
+          double sigma_mu);
 
 int rk4_drv(double *t,
             double tmax,
             double dtout,
             double mdiff,
-            double *x,
-            double *v,
+            struct Gal *gal,
+            int ngals,
             double vorz,
-            double *parameter,
-            double *fit,
-            int newspaper,
-            PyArrayObject *n_OD,
-            PyArrayObject *n_VR);
-
-int rk4_drvtail(double *t,
-                double tmax,
-                double mdiff,
-                double *x,
-                double *v,
-                double vorz,
-                double *xc,
-                double *vc,
-                double *parameter,
-                double next_snap_tail);
+            double *parameter);
 
 void getforce(double *x, double *v, double *a, double *parameter);
-void getforcetail(double *x, double *v, double *a, double *xc, double *parameter);
 void do_step(double dt, double *x, double *v, double *parameter);
-void do_steptail(double dt, double *x, double *v, double *xc, double *vc, double *parameter);
 double get_gauss(void);
 void convert(double *x,
              double *v,
@@ -87,25 +70,12 @@ void convert(double *x,
              double vLSRtemp,
              double rgalsun);
 
-double fitness(int N,
-               double **star,
-               double sigma_x,
-               double sigma_v,
-               double sigma_vx,
-               double sigma_mu,
-               PyArrayObject *n_OD,
-               PyArrayObject *n_VR);
-
 void shellsort_reverse_1d(double *array, int N);
 void shellsort_1d(double *array, int N);
 void shellsort(double **array, int N, int k);
 void shellsort_reverse(double **array, int N, int k);
 double *vector(long nl, long nh);
 void free_vector(double *v, long nl, long nh);
-
-//data
-int nr_OD;
-int nr_VR;
 
 //integration parameters
 double const dtout = 15.0;          //time step for output [Myr]
@@ -125,7 +95,7 @@ int const tailtype = 0;             //0 = normal, 1 = VL2 maessig, 2 = VL2 besse
 double const rtidemax = 1.e9;      //maximum value for rtide
 
 //Write out snapshot after each integration?
-int const snapshot = 1;
+int const snapshot = 0;
 double const dtsnap = 5.0;           //timestep to save snapshot [Myr]
 
 //potential parameters
@@ -157,10 +127,13 @@ double const alphaGNP = 192.859508; //Galactic north pole in J2000 coordinates
 double const deltaGNP = 27.128336;
 double const PAGNP = 122.932;       //Position angle with respect to equatorial pole
 
+//Halo parameters
+double const Mhalo = 1.5e12;
+
 
 //solar parameters
-//double const rgalsun = 8330.0;      //solar Galactocentric radius [pc] (standard = 8330.0; Gillessen et al. 2009)
-//double const vLSR = 239.5;          //rotational velocity of local standard of rest (Reid & Brunthaler 2004 - vysun)
+double const rgalsun = 8330.0;      //solar Galactocentric radius [pc] (standard = 8330.0; Gillessen et al. 2009)
+double const vLSR = 239.5;          //rotational velocity of local standard of rest (Reid & Brunthaler 2004 - vysun)
 //double vxsun = 0.0;
 //double vysun = 0.0;
 //double vzsun = 0.0;

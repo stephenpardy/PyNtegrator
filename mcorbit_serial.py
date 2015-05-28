@@ -4,9 +4,7 @@ import emcee
 from math import *
 from random import random
 from random import gauss
-from myutils import *
 import sys
-from mcorbit_data import *
 from mcorbit_utils import *
 
 n_OD = []
@@ -14,7 +12,7 @@ n_vr = []
 
 
 def Serial_orbit():
-    pool = get_pool(mpi=True, threads=2)
+    pool = get_pool(mpi=False, threads=2)
 
     if __name__ == '__main__':
         i = len(sys.argv)
@@ -29,11 +27,11 @@ def Serial_orbit():
         name = ""
         newspaper = 1  # write each model to a temporary file for plotting
 
-    n_OD = np.loadtxt(datafile+"_OD", dtype='double')
-    n_VR = np.loadtxt(datafile+"_VR", dtype='double')
+    n_OD = np.loadtxt(datafile+"_OD").astype('double')
+    n_VR = np.loadtxt(datafile+"_VR").astype('double')
 
     # Set up MCMC
-    nwalkers = 256  # Number of chains
+    nwalkers = 16  # Number of chains
     # Number of parameters: M, mu_alphacosdelta, mu_delta, Mass_DM, qz, a3,
     # dsun, mloss_rate
     ndim = 15
