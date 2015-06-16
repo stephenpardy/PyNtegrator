@@ -28,46 +28,51 @@ PyMODINIT_FUNC init_orbit(void)
 static PyObject *orbit_orbit(PyObject *self, PyObject *args)
 {
 
-    int err;
-	double mass_cluster,
-		   pm_mu_delta,
-		   pm_mu_alphacosdelta,
-		   distance_cluster,
-		   q_halo,
-		   r_halo,
-		   tpast,
-		   sigma_x,
-		   sigma_v,
-		   sigma_vx,
-		   sigma_mu;
+        int err;
+	PyArrayObject *mass_gal,
+	              *rad_gal,
+		      *pm_mu_delta,
+		      *pm_mu_alphacosdelta,
+		      *distance_gal,
+		      *l,
+		      *b;
+	double tpast,
+	       sigma_x,
+	       sigma_v,
+	       sigma_vx,
+	       sigma_mu;
 
 	// Parse the input tuple
-	if (!PyArg_ParseTuple(args, "ddddddddddd",
-								&mass_cluster,
-								&pm_mu_delta,
-								&pm_mu_alphacosdelta,
-								&distance_cluster,
-								&q_halo,
-								&r_halo,
-								&tpast,
-								&sigma_x,
-								&sigma_v,
-								&sigma_vx,
-								&sigma_mu))	// reads in input parameters
+	// Change theser arguments to accept python lists
+	if (!PyArg_ParseTuple(args, "OOOOOOOddddd",
+			      &mass_gal,
+			      &rad_gal,
+			      &pm_mu_delta,
+			      &pm_mu_alphacosdelta,
+			      &distance_gal,
+			      &l,
+			      &b,
+			      &tpast,
+			      &sigma_x,
+			      &sigma_v,
+			      &sigma_vx,
+			      &sigma_mu))	// reads in input parameters
 		return NULL;
 
 	// Call the external C function to create the streakline model and return the likelihood
-	err = orbit(mass_cluster,
-				pm_mu_delta,
-				pm_mu_alphacosdelta,
-				distance_cluster,
-				q_halo,
-				r_halo,
-				tpast,
-				sigma_x,
-				sigma_v,
-				sigma_vx,
-				sigma_mu);
+	
+	err = orbit(mass_gal,
+	            rad_gal,
+		    pm_mu_delta,
+		    pm_mu_alphacosdelta,
+		    distance_gal,
+		    l,
+		    b,
+		    tpast,
+		    sigma_x,
+		    sigma_v,
+		    sigma_vx,
+		    sigma_mu);
 
     // Check if error raised
 	if(err!=0) {

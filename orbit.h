@@ -2,8 +2,8 @@
 #include<stdlib.h>
 #include<math.h>
 #include<time.h>
-//#include <Python.h>
-//#include <numpy/arrayobject.h>
+#include <Python.h>
+#include <numpy/arrayobject.h>
 
 //constants
 #define Pi 3.14159265
@@ -18,19 +18,22 @@ struct Gal // companion galaxies
 {
     double pos[3];
     double vel[3];
-    double acc[3];
+    double post[3]; // temp positions during timestep check
+    double velt[3]; // temp velocities durin timestep check
     int ID;
-    double mass;
+    double mhalo;
+    double r_halo;
 };
 
 //functions
 
-int orbit(double mass_cluster,
-          double pm_mu_delta,
-          double pm_mu_alphacosdelta,
-          double distance_cluster,
-          double q_halo,
-          double r_halo,
+int orbit(PyArrayObject *mass_gal,
+          PyArrayObject *rad_gal,
+          PyArrayObject *pm_mu_delta,
+          PyArrayObject *pm_mu_alphacosdelta,
+          PyArrayObject *distance_gal,
+          PyArrayObject *l,
+          PyArrayObject *b,
           double tpast,
           double sigma_x,
           double sigma_v,
@@ -42,12 +45,11 @@ int rk4_drv(double *t,
             double dtout,
             double mdiff,
             struct Gal *gal,
-            int ngals,
-            double vorz,
-            double *parameter);
+            double vorz);
 
-void getforce(double *x, double *v, double *a, double *parameter);
-void do_step(double dt, double *x, double *v, double *parameter);
+void getforce(double *x, double *v, double *a);
+void getforce_gals(double *x, double *v, double *a, struct Gal *gal);
+void do_step(double dt, double *x, double *v, struct Gal *gal);
 double get_gauss(void);
 void convert(double *x,
              double *v,
@@ -98,6 +100,8 @@ double const rtidemax = 1.e9;      //maximum value for rtide
 int const snapshot = 0;
 double const dtsnap = 5.0;           //timestep to save snapshot [Myr]
 
+int const ngals = 2;  // Number of dwarfs
+
 //potential parameters
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
 
@@ -121,15 +125,15 @@ double const a2_LMJ = 6500.0;       //[pc]
 double const b2_LMJ = 260.0;        //[pc]
 double const M2_LMJ = 1.0e11;       //[solar masses]
 
-
 //Galactic North Pole parameters
 double const alphaGNP = 192.859508; //Galactic north pole in J2000 coordinates
 double const deltaGNP = 27.128336;
 double const PAGNP = 122.932;       //Position angle with respect to equatorial pole
 
 //Halo parameters
-double const Mhalo = 1.5e12;
-
+double const Mhalo = 1.5e12; //M200 of MW
+double const q_halo = 1.0;  // flattening of halo
+double const r_halo = 3e+4; // scale radius of halo... I think
 
 //solar parameters
 double const rgalsun = 8330.0;      //solar Galactocentric radius [pc] (standard = 8330.0; Gillessen et al. 2009)
@@ -153,16 +157,15 @@ double const vzsun = 7.25;          //+0.37−0.36
 //double vysun = 14.0;
 //double vzsun = 7.5;
 
-
 //fixed cluster parameters
 double const vr =  106.7;//110.7;//Harris       //NGC 5466 //heliocentric radial velocity [km/s]
 double const redge = 20.0;       //cluster edge radius [pc] CHANGE THIS
 double const vrexcess = 0.0;    //mean escape velocity ~ 0.5-2 times velocity dispersion [km/s]
 double const rexcess = 0.0;     //displacement from Lagrange point [rtide]
 double const R4 = 20.0;         //cluster plummer radius CHANGE THIS
-double const b = 73.59;              //NGC 5466 //galactic lattitude [deg]
-double const l = 42.15;               //NGC 5466 //galactic longitude [deg]  (provide l or l*cos(b), set other to 0.0)
-double const lcosb = 0.0;             //NGC 5466 //galactic longitude times cosine of galactic lattitude [deg]
+//double const b = 73.59;              //NGC 5466 //galactic lattitude [deg]
+//double const l = 42.15;               //NGC 5466 //galactic longitude [deg]  (provide l or l*cos(b), set other to 0.0)
+//double const lcosb = 0.0;             //NGC 5466 //galactic longitude times cosine of galactic lattitude [deg]
 
 //double const vr =  -58.7;       //Pal 5 //heliocentric radial velocity [km/s]
 //double const redge = 20.0;       //cluster edge radius [pc]
