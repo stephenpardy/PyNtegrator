@@ -7,36 +7,34 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit(PyDictObject *parameters
-          /*PyArrayObject *rad_gal,
-          PyArrayObject *pm_mu_delta,
-          PyArrayObject *pm_mu_alphacosdelta,
-          PyArrayObject *distance_gal,
-          PyArrayObject *l,
-          PyArrayObject *b,
-          double tpast,
-          double sigma_x,
-          double sigma_v,
-          double sigma_vx,
-          double sigma_mu
-          */) {
-
+int orbit(PyDictObject *input_parameters){
     //round simulation time to multiple of output time
     struct Gal gal[ngals];
+    struct Params parameters;
+
+    parameters.b1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b1_LMJ"));
+    parameters.M1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M1_LMJ"));
+    parameters.a2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "a1_LMJ"));
+    parameters.b2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b2_LMJ"));
+    parameters.M2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M2_LMJ"));
+    parameters.Mhalo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "Mhalo"));
+    parameters.q_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "q_halo"));
+    parameters.r_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "r_halo"));
+
     int ratio, n;
-    double tpast = PyFloat_AsDouble(PyDict_GetItemString(parameters, "tpast"));
+    double tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
     printf("%10.5f\n", tpast);
     ratio = (int) 1.0*tpast/dtout;
     tpast = 1.0*ratio*dtout;
 
     //convert coordinates into Cartesian frame
-    PyArrayObject *distance_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "distance_gal");
-    PyArrayObject *pm_mu_alphacosdelta = (PyArrayObject*)PyDict_GetItemString(parameters, "pm_mu_alphacosdelta");
-    PyArrayObject *pm_mu_delta = (PyArrayObject*)PyDict_GetItemString(parameters, "pm_mu_delta");
-    PyArrayObject *l = (PyArrayObject*)PyDict_GetItemString(parameters, "l");
-    PyArrayObject *b = (PyArrayObject*)PyDict_GetItemString(parameters, "b");
-    PyArrayObject *mass_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "mass_gal");
-    PyArrayObject *rad_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "rad_gal");
+    PyArrayObject *distance_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "distance_gal");
+    PyArrayObject *pm_mu_alphacosdelta = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pm_mu_alphacosdelta");
+    PyArrayObject *pm_mu_delta = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pm_mu_delta");
+    PyArrayObject *l = (PyArrayObject*)PyDict_GetItemString(input_parameters, "l");
+    PyArrayObject *b = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b");
+    PyArrayObject *mass_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "mass_gal");
+    PyArrayObject *rad_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "rad_gal");
 
     double dsuntemp;
     double vrsuntemp;
@@ -91,13 +89,13 @@ int orbit(PyDictObject *parameters
     double dtoutt = tpast;
     double t = tstart;
     int err;
-    err = rk4_drv(&t, tmax, dtoutt, mdiff, gal, sign);
+    err = rk4_drv(&t, tmax, dtoutt, mdiff, gal, parameters, sign);
 
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
     sign = 1.0;
     dtoutt = dtout;
     tmax = tfuture;
-    err = rk4_drv(&t, tmax, dtoutt, mdiff, gal, sign);
+    err = rk4_drv(&t, tmax, dtoutt, mdiff, gal, parameters, sign);
     printf("%d", err);
     //}
 
@@ -110,6 +108,7 @@ int rk4_drv(double *t,
             double dtout,
             double mdiff,
             struct Gal *gal,
+            struct Params parameters,
             double sign){
 
 	double tout, diff, dt = 0.0;
@@ -145,17 +144,17 @@ int rk4_drv(double *t,
 			xe1[k]=(*(gal+n)).pos[k];
 			ve1[k]=(*(gal+n)).vel[k];
 		    }
-		    do_step(dt, xe1, ve1, gal);      /* One full step */
+		    do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
 
-		    do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, gal);  /* Two half steps */
-		    do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, gal);
+		    do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);  /* Two half steps */
+		    do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);
 		    difftemp = sqrt(pow(xe1[0] - (*(gal+n)).post[0],2) +
 		                    pow(xe1[1] - (*(gal+n)).post[1],2) +
 		                    pow(xe1[2] - (*(gal+n)).post[2],2));
                     if (difftemp > diff) {diff = difftemp;} // hold highest value to compare with mdiff below
                 }
                 // end loop over each galaxy
-		if (diff<mdiff) {         /* Is difference below accuracy threshold? */
+		if (diff<=mdiff) {         /* Is difference below accuracy threshold? */
 		    *t+=dt;
 		    //update the test particles here
                     for (n=0; n<ngals; n++){
@@ -208,41 +207,51 @@ int rk4_drv(double *t,
 
 
 /* ----------- force ----------- */
-void getforce(double *x, double *v, double *a){
+void getforce(double *x, double *v, double *a, struct Params parameters){
 	double r1, r2, r3;
-	double a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z;
-
+        double ax = 0.0;
+        double ay = 0.0;
+        double az = 0.0;
+        
     // Potential for MW
 	//Hernquist bulge
 	r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
 
-	a1x = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**x/r1;
-	a1y = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+1)/r1;
-	a1z = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+2)/r1;
+	//ax += -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**x/r1;
+	//ay += -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+1)/r1;
+	//az += -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+2)/r1;
+	ax += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**x/r1;
+	ay += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+1)/r1;
+	az += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+2)/r1;
 
-	//Miyamato disk
-	r2 = sqrt(*x * *x + *(x+1) * *(x+1) + (a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ))*(a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ)));
+        //Miyamato disk
+	r2 = sqrt(pow(*x, 2) +
+	          pow(*(x+1), 2) +
+	          pow(parameters.a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)), 2));
 
-	a2x = -G*M2_LMJ/(r2*r2*r2) * *x;
-	a2y = -G*M2_LMJ/(r2*r2*r2) * *(x+1);
-	a2z = -G*M2_LMJ/(r2*r2*r2) * (a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ))/sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ) * *(x+2);
+	ax += -G*parameters.M2_LMJ/(r2*r2*r2) * *x;
+	ay += -G*parameters.M2_LMJ/(r2*r2*r2) * *(x+1);
+	az += -G*parameters.M2_LMJ/(r2*r2*r2) * (a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)))/
+	        sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)) * *(x+2);
 
 	//NFW Halo
-	r3 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2)/q_halo * *(x+2)/q_halo);
+	r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/q_halo, 2));
 
-        a3x = -G*Mhalo/r3 * (log(1.0 + r3/r_halo)/r3 - 1.0/(r_halo+r3)) * *x/r3;
-        a3y = -G*Mhalo/r3 * (log(1.0 + r3/r_halo)/r3 - 1.0/(r_halo+r3)) * *(x+1)/r3;
-        a3z = -G*Mhalo/r3 * (log(1.0 + r3/r_halo)/r3 - 1.0/(r_halo+r3)) * *(x+2)/(q_halo*q_halo*r3);
+        ax += -G*parameters.Mhalo/r3 * (log(1.0 + r3/parameters.r_halo)/r3 - 1.0/(parameters.r_halo+r3)) * *x/r3;
+        ay += -G*parameters.Mhalo/r3 * (log(1.0 + r3/parameters.r_halo)/r3 - 1.0/(parameters.r_halo+r3)) * *(x+1)/r3;
+        az += -G*parameters.Mhalo/r3 * (log(1.0 + r3/parameters.r_halo)/r3 - 1.0/(parameters.r_halo+r3)) * *(x+2)/(parameters.q_halo*parameters.q_halo*r3);
 
-	*(a+0) = a1x + a2x + a3x;
-	*(a+1) = a1y + a2y + a3y;
-	*(a+2) = a1z + a2z + a3z;
-
+	*(a+0) = ax;
+	*(a+1) = ay;
+	*(a+2) = az;
 }
 
 
-void getforce_gals(double *x, double *v, double *a, struct Gal *gal){
-    getforce(x, v, a);
+void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
+    getforce(x, v, a, parameters);
     int i;
     double r;
     double ax = 0.0;
@@ -252,20 +261,20 @@ void getforce_gals(double *x, double *v, double *a, struct Gal *gal){
 //    double k = 1.3e-7;
     //NFW Halo
     for (i=0; i<ngals; i++){
-        if (*x != gal[i].pos[0]){
+        if (i != gal_num){
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                      pow(*(x+1) - gal[i].pos[1], 2) +
                      pow(*(x+2) - gal[i].pos[2], 2));
         
-            ax += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * *x/r;
-            ay += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * *(x+1)/r;
-            az += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * *(x+2)/r;
-
-            *(a+0) += ax;
-            *(a+1) += ay;
-            *(a+2) += az;
+            ax += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * (*x-gal[i].pos[0])/r;
+            ay += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * (*(x+1)-gal[i].pos[1])/r;
+            az += -G* gal[i].mhalo/r * (log(1.0 + r/ gal[i].r_halo)/r - 1.0/( gal[i].r_halo+r)) * (*(x+2)-gal[i].pos[2])/r;
         }
     }
+    *(a+0) += ax;
+    *(a+1) += ay;
+    *(a+2) += az;
+
 }
 
 
@@ -291,30 +300,30 @@ void getforce_testparticle(double *x, double *v, double *a, double *xc, double *
 }
 */
 /* ---------- advancement ---------- */
-void do_step(double dt, double *x, double *v, struct Gal *gal) {
+void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
 	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 	int k;
 
 	hh = dt*0.5;
-	getforce_gals(x, v, acc0, gal);
+	getforce_gals(x, v, acc0, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* first half-step */
 		xt1[k] = *(x+k)+hh**(v+k);
 		vt1[k] = *(v+k)+hh**(acc0+k);
 	}
 
-	getforce_gals(&xt1[0], &vt1[0], acc1, gal);
+	getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* second half-step */
 		xt2[k] = *(x+k)+hh*vt1[k];
 		vt2[k] = *(v+k)+hh**(acc1+k);
 	}
 
-	getforce_gals(&xt2[0], &vt2[0], acc2, gal);
+	getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
 		xt3[k] = *(x+k)+dt*vt2[k];
 		vt3[k] = *(v+k)+dt**(acc2+k);
 	}
 
-	getforce_gals(&xt3[0], &vt3[0], acc3, gal);
+	getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* Runge-Kutta formula */
 		*(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
 		*(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));

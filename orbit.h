@@ -25,6 +25,19 @@ struct Gal // companion galaxies
     double r_halo;
 };
 
+struct Params // Galactic and orbital parameters
+{
+    double b1_LMJ;        //[pc]
+    double M1_LMJ;       //[solar masses]
+    double a2_LMJ;       //[pc]
+    double b2_LMJ;        //[pc]
+    double M2_LMJ;       //[solar masses]
+    double Mhalo; //M200 of MW
+    double q_halo;  // flattening of halo
+    double r_halo; // scale radius of halo... I think
+
+};
+
 //functions
 
 int orbit(PyDictObject *parameters);
@@ -34,11 +47,12 @@ int rk4_drv(double *t,
             double dtout,
             double mdiff,
             struct Gal *gal,
+            struct Params parameters,
             double vorz);
 
-void getforce(double *x, double *v, double *a);
-void getforce_gals(double *x, double *v, double *a, struct Gal *gal);
-void do_step(double dt, double *x, double *v, struct Gal *gal);
+void getforce(double *x, double *v, double *a, struct Params parameters);
+void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters);
+void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters);
 double get_gauss(void);
 void convert(double *x,
              double *v,
