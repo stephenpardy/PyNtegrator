@@ -27,18 +27,7 @@ struct Gal // companion galaxies
 
 //functions
 
-int orbit(PyArrayObject *mass_gal,
-          PyArrayObject *rad_gal,
-          PyArrayObject *pm_mu_delta,
-          PyArrayObject *pm_mu_alphacosdelta,
-          PyArrayObject *distance_gal,
-          PyArrayObject *l,
-          PyArrayObject *b,
-          double tpast,
-          double sigma_x,
-          double sigma_v,
-          double sigma_vx,
-          double sigma_mu);
+int orbit(PyDictObject *parameters);
 
 int rk4_drv(double *t,
             double tmax,
@@ -85,7 +74,7 @@ double const tstart = 0.0;          //time at input of cluster coordinates [Myr]
 double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
 double const mdiff = 1.E-4;         //precission
-double const dt0 = 1.E-4;			//initial time-step [Myr]
+double const dt0 = 1.E-5;			//initial time-step [Myr]
 double const dtmax = 50.0;          //maximum time-step [Myr]
 double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
 double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]

@@ -7,8 +7,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit(PyArrayObject *mass_gal,
-          PyArrayObject *rad_gal,
+int orbit(PyDictObject *parameters
+          /*PyArrayObject *rad_gal,
           PyArrayObject *pm_mu_delta,
           PyArrayObject *pm_mu_alphacosdelta,
           PyArrayObject *distance_gal,
@@ -18,15 +18,26 @@ int orbit(PyArrayObject *mass_gal,
           double sigma_x,
           double sigma_v,
           double sigma_vx,
-          double sigma_mu) {
+          double sigma_mu
+          */) {
 
     //round simulation time to multiple of output time
     struct Gal gal[ngals];
     int ratio, n;
+    double tpast = PyFloat_AsDouble(PyDict_GetItemString(parameters, "tpast"));
+    printf("%10.5f\n", tpast);
     ratio = (int) 1.0*tpast/dtout;
     tpast = 1.0*ratio*dtout;
 
     //convert coordinates into Cartesian frame
+    PyArrayObject *distance_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "distance_gal");
+    PyArrayObject *pm_mu_alphacosdelta = (PyArrayObject*)PyDict_GetItemString(parameters, "pm_mu_alphacosdelta");
+    PyArrayObject *pm_mu_delta = (PyArrayObject*)PyDict_GetItemString(parameters, "pm_mu_delta");
+    PyArrayObject *l = (PyArrayObject*)PyDict_GetItemString(parameters, "l");
+    PyArrayObject *b = (PyArrayObject*)PyDict_GetItemString(parameters, "b");
+    PyArrayObject *mass_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "mass_gal");
+    PyArrayObject *rad_gal = (PyArrayObject*)PyDict_GetItemString(parameters, "rad_gal");
+
     double dsuntemp;
     double vrsuntemp;
     double vrtemp;
@@ -146,6 +157,7 @@ int rk4_drv(double *t,
                 // end loop over each galaxy
 		if (diff<mdiff) {         /* Is difference below accuracy threshold? */
 		    *t+=dt;
+		    //update the test particles here
                     for (n=0; n<ngals; n++){
 		        for (k=0;k<3;k++) {
 			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];          /* If yes -> continue and double step size */
