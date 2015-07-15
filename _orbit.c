@@ -1,5 +1,4 @@
 #include <Python.h>
-
 #include <numpy/arrayobject.h>
 /* Docstrings */
 static char module_docstring[] = "This module provides an interface for running a Runge-Kutta streakline integrator using C.";
@@ -28,14 +27,15 @@ PyMODINIT_FUNC init_orbit(void)
 static PyObject *orbit_orbit(PyObject *self, PyObject *args)
 {
 
-        int err;
+        int err, input_type, int_mode, ngals;
         PyDictObject *parameters;
        	// Parse the input tuple
 	// Change theser arguments to accept python lists
-	if (!PyArg_ParseTuple(args, "O", &parameters))	// reads in input parameters
+	if (!PyArg_ParseTuple(args, "iiiO", &input_type, &int_mode, &ngals, &parameters)) // reads in input parameters
 		return NULL;
+	 	
 	// Call the external C function to create the streakline model and return the likelihood
-	err = orbit(parameters);
+	err = orbit(input_type, int_mode, ngals, parameters);
 
     // Check if error raised
 	if(err!=0) {

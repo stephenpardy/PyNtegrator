@@ -23,6 +23,10 @@ struct Gal // companion galaxies
     int ID;
     double mhalo;
     double r_halo;
+    double gamma;
+    double a2_LMJ;
+    double b2_LMJ;
+    double M2_LMJ;
 };
 
 struct Params // Galactic and orbital parameters
@@ -35,12 +39,15 @@ struct Params // Galactic and orbital parameters
     double Mhalo; //M200 of MW
     double q_halo;  // flattening of halo
     double r_halo; // scale radius of halo... I think
-
+    double gamma; //inner slope of halo
+    double tpast;
+    int ngals; //number of dwarfs
+    char *outputdir; //outputfolder
 };
 
 //functions
 
-int orbit(PyDictObject *parameters);
+int orbit(int input_type, int int_mode, int ngals, PyDictObject *parameters);
 
 int rk4_drv(double *t,
             double tmax,
@@ -75,6 +82,7 @@ void convert(double *x,
              double vLSRtemp,
              double rgalsun);
 
+void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);
 void shellsort_reverse_1d(double *array, int N);
 void shellsort_1d(double *array, int N);
 void shellsort(double **array, int N, int k);
@@ -83,15 +91,15 @@ double *vector(long nl, long nh);
 void free_vector(double *v, long nl, long nh);
 
 //integration parameters
-double const dtout = 15.0;          //time step for output [Myr]
+double const dtout = 5.0;          //time step for output [Myr]
 double const tstart = 0.0;          //time at input of cluster coordinates [Myr], usually today, i.e. 0.0
 double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
 double const mdiff = 1.E-4;         //precission
 double const dt0 = 1.E-5;			//initial time-step [Myr]
 double const dtmax = 50.0;          //maximum time-step [Myr]
-double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
-double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
+//double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
+//double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
 
 int const tails = 1;                //integrate tidal tail test particles (0= no, 1= yes);
 double const Rstop = 20.0;          //increase redge if test particles gets inside r < Rstop, set 0 for no redge parameterscan, else e.g. 20 pc
@@ -101,9 +109,6 @@ double const rtidemax = 1.e9;      //maximum value for rtide
 
 //Write out snapshot after each integration?
 int const snapshot = 0;
-double const dtsnap = 5.0;           //timestep to save snapshot [Myr]
-
-int const ngals = 2;  // Number of dwarfs
 
 //potential parameters
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
