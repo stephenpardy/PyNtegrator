@@ -2,6 +2,7 @@ import numpy as np
 from math import *
 import sys
 import scipy.optimize
+import inspect
 
 
 def printcol(*arg, **kwarg):

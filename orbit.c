@@ -7,7 +7,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit(int input_type, int int_mode, int ngals, PyDictObject *input_parameters){
+int orbit(int int_mode,
+          int ngals,
+          PyDictObject *input_parameters,
+          double* output_pos,
+          double* output_vel){
     // Note: no input error checking done here. Do that in python function above.    
 
     //Construct the parameters from the python dictionary
@@ -22,6 +26,7 @@ int orbit(int input_type, int int_mode, int ngals, PyDictObject *input_parameter
     parameters.r_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "r_halo"));
     parameters.tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
     parameters.gamma = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "gamma_halo"));
+    double dtout = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dtout"));
     parameters.ngals = ngals;
     PyObject* folder = PyDict_GetItemString(input_parameters, "outputdir");
     char* folderstr = PyString_AsString(folder);
@@ -47,70 +52,13 @@ int orbit(int input_type, int int_mode, int ngals, PyDictObject *input_parameter
             gal[n].b2_LMJ = *((double *) PyArray_GETPTR1(b2_gal, n));
             gal[n].M2_LMJ = *((double *) PyArray_GETPTR1(m2_gal, n));
     }
-   // PyObject *pystring = PyDict_GetItemString(input_parameters, "input_type");
-   // int c = PyString_Check(pystring);
-    //char* input_type = PyString_AsString(pystring);
-    if (input_type == 0){
-        //convert coordinates into Cartesian frame
-        PyArrayObject *distance_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "distance_gal");
-        PyArrayObject *pm_mu_alphacosdelta = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pm_mu_alphacosdelta");
-        PyArrayObject *pm_mu_delta = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pm_mu_delta");
-        PyArrayObject *l = (PyArrayObject*)PyDict_GetItemString(input_parameters, "l");
-        PyArrayObject *b = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b");
-
-        double dsuntemp;
-        double vrsuntemp;
-        double vrtemp;
-        double ltemp;
-        double btemp;
-        double lcosbtemp;
-        double RAtemp;
-        double DECtemp;
-        double mu_alphatemp;
-        double mu_alphacosdeltatemp;
-        double mu_deltatemp;
-        double mutemp;
-        double PAtemp;
-        double vLSRtemp;
-        for (n=0; n<ngals; n++){
-            dsuntemp = *(double*)PyArray_GETPTR1(distance_gal,n)*1000.;
-            mu_alphatemp = 0.0;
-            mu_alphacosdeltatemp = *(double*)PyArray_GETPTR1(pm_mu_alphacosdelta,n)*1000.0;
-            mu_deltatemp = *(double*)PyArray_GETPTR1(pm_mu_delta, n)*1000.0;
-            vrsuntemp = vLSR;
-            ltemp = *(double*)PyArray_GETPTR1(l, n);
-            btemp = *(double*)PyArray_GETPTR1(b, n); 
-            lcosbtemp = 0.0;
-            vLSRtemp = vLSR;
-            convert(gal[n].pos,
-                    gal[n].vel,
-                    &dsuntemp,
-                    &vrsuntemp,
-                    &vrtemp,
-                    &ltemp,
-                    &btemp,
-                    &lcosbtemp,
-                    &RAtemp,
-                    &DECtemp,
-                    &mu_alphatemp,
-                    &mu_alphacosdeltatemp,
-                    &mu_deltatemp,
-                    &mutemp,
-                    &PAtemp,
-                    2,
-                    2,
-                    0,
-                    vLSRtemp,
-                    rgalsun);
-        }
-    } else {
-        PyArrayObject *pos = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pos");
-        PyArrayObject *vel = (PyArrayObject*)PyDict_GetItemString(input_parameters, "vel");
-        for (n=0; n<ngals; n++){
-            for (i=0; i<3; i++){
-                gal[n].pos[i] = *(double*)PyArray_GETPTR2(pos, n, i);
-                gal[n].vel[i] = *(double*)PyArray_GETPTR2(vel, n, i);
-            }
+    //Set galaxies in proper place.
+    PyArrayObject *pos = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pos");
+    PyArrayObject *vel = (PyArrayObject*)PyDict_GetItemString(input_parameters, "vel");
+    for (n=0; n<ngals; n++){
+        for (i=0; i<3; i++){
+            gal[n].pos[i] = *(double*)PyArray_GETPTR2(pos, n, i);
+            gal[n].vel[i] = *(double*)PyArray_GETPTR2(vel, n, i);
         }
     }
 
@@ -134,7 +82,11 @@ int orbit(int input_type, int int_mode, int ngals, PyDictObject *input_parameter
     else 
     {
         printf("move forward\n");
-        double sign = 1.0;
+        double sign;
+        if (tpast < 0.0)
+            sign = -1.0;
+        else 
+            sign = 1.0;
         double tmax = tpast;
         double dtoutt = dtout;
         double t = tstart;
@@ -144,6 +96,12 @@ int orbit(int input_type, int int_mode, int ngals, PyDictObject *input_parameter
     }
 
        //}
+    for (n=0; n<ngals; n++){
+        for (i=0; i<3; i++){
+            output_pos[i+n*3] = gal[n].pos[i];
+            output_vel[i+n*3] = gal[n].vel[i];
+        }
+    }
     free(gal);
     return 0;
 }

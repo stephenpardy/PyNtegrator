@@ -47,7 +47,11 @@ struct Params // Galactic and orbital parameters
 
 //functions
 
-int orbit(int input_type, int int_mode, int ngals, PyDictObject *parameters);
+int orbit(int int_mode,
+          int ngals,
+          PyDictObject *parameters,
+          double* output_pos,
+          double* output_vel);
 
 int rk4_drv(double *t,
             double tmax,
@@ -91,7 +95,7 @@ double *vector(long nl, long nh);
 void free_vector(double *v, long nl, long nh);
 
 //integration parameters
-double const dtout = 5.0;          //time step for output [Myr]
+//double const dtout = 5.0;          //time step for output [Myr]
 double const tstart = 0.0;          //time at input of cluster coordinates [Myr], usually today, i.e. 0.0
 double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
