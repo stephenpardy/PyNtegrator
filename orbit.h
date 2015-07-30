@@ -61,7 +61,7 @@ int rk4_drv(double *t,
             struct Params parameters,
             double vorz);
 
-void getforce(double *x, double *v, double *a, struct Params parameters);
+void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal);
 void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters);
 void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters);
 double get_gauss(void);
@@ -97,7 +97,7 @@ void free_vector(double *v, long nl, long nh);
 //integration parameters
 //double const dtout = 5.0;          //time step for output [Myr]
 double const tstart = 0.0;          //time at input of cluster coordinates [Myr], usually today, i.e. 0.0
-double const tfuture = 0.0;         //time at end of integration [Myr]
+//double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
 double const mdiff = 1.E-4;         //precission
 double const dt0 = 1.E-5;			//initial time-step [Myr]
@@ -117,6 +117,7 @@ int const snapshot = 0;
 //potential parameters
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
 
+int const DYNAMICALFRICTION = 1;  // Compute dynamical friction from other galaxies?
 //Allen & Santillan potential constants
 double const b1 = 230.0;        //I12 //[pc]
 double const M1 = 9.4888e09;    //I12 //[solar masses]
