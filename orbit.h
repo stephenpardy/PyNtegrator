@@ -8,7 +8,8 @@
 //constants
 #define Pi 3.14159265
 #define PI 3.14159265
-#define G  0.0043009211           //gravitational constant in [km^2/s^2/Msun*pc]
+//#define G  0.0043009211           //gravitational constant in [km^2/s^2/Msun*pc]
+#define G 0.0043021135   // From astropy.constants and units 
 #define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
 #define min( a, b ) ( ((a) < (b)) ? (a) : (b) )
 #define SMALL 1.0E-3
@@ -27,6 +28,13 @@ struct Gal // companion galaxies
     double a2_LMJ;
     double b2_LMJ;
     double M2_LMJ;
+};
+
+struct OrbitStats // orbital statistcs
+{
+    int apocenters;
+    int pericenters;
+    int dir;
 };
 
 struct Params // Galactic and orbital parameters
@@ -56,6 +64,7 @@ int orbit(int int_mode,
 int rk4_drv(double *t,
             double tmax,
             double dtout,
+            double dt0,
             double mdiff,
             struct Gal *gal,
             struct Params parameters,
@@ -100,10 +109,12 @@ double const tstart = 0.0;          //time at input of cluster coordinates [Myr]
 //double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
 double const mdiff = 1.E-4;         //precission
-double const dt0 = 1.E-5;			//initial time-step [Myr]
-double const dtmax = 50.0;          //maximum time-step [Myr]
+//double const dt0 = 1.E-5;			//initial time-step [Myr]
+double const dtmax = 25.0;          //maximum time-step [Myr]
 //double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
 //double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
+int const VARIABLE_TIMESTEPS = 1;
+int const RK4 = 1; // Use a Runge-Kutta? Alt. is leapfrog.
 
 int const tails = 1;                //integrate tidal tail test particles (0= no, 1= yes);
 double const Rstop = 20.0;          //increase redge if test particles gets inside r < Rstop, set 0 for no redge parameterscan, else e.g. 20 pc
@@ -111,13 +122,20 @@ int const radio = 0;                //say what you're doing
 int const tailtype = 0;             //0 = normal, 1 = VL2 maessig, 2 = VL2 besser
 double const rtidemax = 1.e9;      //maximum value for rtide
 
-//Write out snapshot after each integration?
-int const snapshot = 0;
+//Write out snapshot during integration?
+int const snapshot = 1;
+//Compute orbital statistics during integration?
+int const orbit_stats = 0;
+// which galaxies to test:
+int const ref_gal = 2;  // MW, move this to an input parameter later
+int const test_gal = 1;  // should be LMC, same as above, move to input
 
 //potential parameters
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
+int const NFW = 0;            // Use an NFW profile instead of Dehnen
 
-int const DYNAMICALFRICTION = 1;  // Compute dynamical friction from other galaxies?
+int const DYNAMICALFRICTION_MAIN = 1;  // Compute dynamical friction from fixed galaxy?
+int const DYNAMICALFRICTION_COMPANION = 1;  // Compute dynamical friction from other galaxies?
 //Allen & Santillan potential constants
 double const b1 = 230.0;        //I12 //[pc]
 double const M1 = 9.4888e09;    //I12 //[solar masses]
