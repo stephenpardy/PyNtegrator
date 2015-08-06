@@ -48,6 +48,7 @@ struct Params // Galactic and orbital parameters
     double q_halo;  // flattening of halo
     double r_halo; // scale radius of halo... I think
     double gamma; //inner slope of halo
+    double c_halo; //NFW concentration
     double tpast;
     int ngals; //number of dwarfs
     char *outputdir; //outputfolder
@@ -135,7 +136,7 @@ int const gpot = 3;             //type of Galactic potential (1= Allen & Santill
 int const NFW = 0;            // Use an NFW profile instead of Dehnen
 
 int const DYNAMICALFRICTION_MAIN = 1;  // Compute dynamical friction from fixed galaxy?
-int const DYNAMICALFRICTION_COMPANION = 1;  // Compute dynamical friction from other galaxies?
+int const DYNAMICALFRICTION_COMPANION = 0;  // Compute dynamical friction from other galaxies?
 //Allen & Santillan potential constants
 double const b1 = 230.0;        //I12 //[pc]
 double const M1 = 9.4888e09;    //I12 //[solar masses]

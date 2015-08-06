@@ -25,7 +25,8 @@ int orbit(int int_mode,
     parameters.q_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "q_halo"));
     parameters.r_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "r_halo"));
     parameters.tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
-    parameters.gamma = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "gamma_halo"));
+    if (!NFW) parameters.gamma = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "gamma_halo"));
+    if (NFW) parameters.c_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "c_halo"));
     double dtout = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dtout"));
 
     parameters.ngals = ngals;
@@ -280,13 +281,15 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
 
             // NFW
             if (NFW) {
-                ax += -2.0*G*parameters.Mhalo * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                                1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
-                ay += -2.0*G*parameters.Mhalo * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                                1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
-                az += -2.0*G*parameters.Mhalo * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                                1.0/(parameters.r_halo+r3)) * *(x+2)/
-                                                pow(parameters.q_halo*parameters.q_halo*r3, 2);
+                double constant = -G*parameters.Mhalo/
+                            (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
+                ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
+                ay += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
+                az += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+2)/
+                                    pow(parameters.q_halo*parameters.q_halo*r3, 2);
 
             } else {
             //Dehnen Halo
@@ -307,23 +310,36 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
                                 pow(r3/(r3+gal.r_halo), 3-gal.gamma));  
                 // This assumes that vcirc == sqrt(3)*vdisp and that the dispersion is measured at the scale radius
                 double X;
+                double sigma;
+               // if (NFW) {
+              //      X = 1.0/(sqrt(2.0*log(2.0)-1))*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+              //  } else {
+              //      X = 2*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+              //  }
                 if (NFW) {
-                    X = 1.0/(sqrt(2.0*log(2.0)-1))*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+                    // Numerical fit where max is at r=2.16258*a
+                    double rvmax = 2.16258;
+                    double VMAX = sqrt(G*parameters.Mhalo/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))
+                                        /(rvmax*parameters.r_halo)*
+                                        (log(1+rvmax)-rvmax/(1+rvmax)));
+                    // fitting formula from Zentner and Bullock 2003, eq. 6)
+                    sigma = VMAX *1.4393*pow(r3, 0.354)/(1+1.1756*pow(r3, 0.725));
                 } else {
-                    X = 2*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+                    sigma = 3.0*sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
+                        (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 + 
+                            42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
+                            (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) + 
+                            log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
                 }
-                //double sigma = sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
-                //        (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 + 
-                //            42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
-                //            (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) + 
-                //            log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
-                //double X = vr/(sqrt(2)*sigma); 
+                X = vr/(sqrt(2)*sigma); 
      
                 // This assumes that vcirc == sqrt(2)*vdisp and that the mass profile is spherical
                 double density;
                 if (NFW) {
-                    // where rho0 = Mhalo/(2Pi*a^3)
-                    density = parameters.Mhalo*parameters.r_halo/(2.0*Pi)/
+                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    density = parameters.Mhalo/(4.0*Pi*pow(parameters.r_halo, 2))/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))/
                                         (r3*pow(r3+parameters.r_halo, 2));             
                 } else {
                     density = (3 - parameters.gamma)*parameters.Mhalo/(4*Pi)*
@@ -332,11 +348,11 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
                 }
 
                 ax += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
-                            (1.0/6.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);       
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);       
                 ay += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
-                            (1.0/6.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);       
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);       
                 az += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
-                            (1.0/6.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);       
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);       
             }
         }
 	*(a+0) = ax;
@@ -397,7 +413,7 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                                     pow(gal[i].r_halo + r, 3) * (*(x+2) - gal[i].pos[2]);
 
             // dynamical friction
-            if (DYNAMICALFRICTION_COMPANION && r > softening) {
+            if (DYNAMICALFRICTION_COMPANION) {
 
                 //relative velocity
                 vx = (*v - gal[i].vel[0]);
@@ -424,13 +440,13 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                             gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
     
                 ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (1.0/1.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);       
+                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);       
 
                 ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (1.0/1.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);       
+                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);       
 
                 az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (1.0/1.0)*(erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);       
+                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);       
 
             }
 
