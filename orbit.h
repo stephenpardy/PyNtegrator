@@ -9,7 +9,8 @@
 #define Pi 3.14159265
 #define PI 3.14159265
 //#define G  0.0043009211           //gravitational constant in [km^2/s^2/Msun*pc]
-#define G 0.0043021135   // From astropy.constants and units 
+//#define G 0.0043021135   // From astropy.constants and units 
+#define G 43007.1 // GADGET UNITS!
 #define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
 #define min( a, b ) ( ((a) < (b)) ? (a) : (b) )
 #define SMALL 1.0E-3
@@ -28,6 +29,7 @@ struct Gal // companion galaxies
     double a2_LMJ;
     double b2_LMJ;
     double M2_LMJ;
+    int halo_type;
 };
 
 struct OrbitStats // orbital statistcs
@@ -109,9 +111,9 @@ void free_vector(double *v, long nl, long nh);
 double const tstart = 0.0;          //time at input of cluster coordinates [Myr], usually today, i.e. 0.0
 //double const tfuture = 0.0;         //time at end of integration [Myr]
 //double const tpast = -6000.0;      //time at beginning of integration [Myr]
-double const mdiff = 1.E-4;         //precission
+double const mdiff = 1.E-7;         //precission
 //double const dt0 = 1.E-5;			//initial time-step [Myr]
-double const dtmax = 25.0;          //maximum time-step [Myr]
+double const dtmax = 0.025;          //maximum time-step [Myr]
 //double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
 //double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
 int const VARIABLE_TIMESTEPS = 1;
@@ -135,8 +137,8 @@ int const test_gal = 1;  // should be LMC, same as above, move to input
 int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
 int const NFW = 0;            // Use an NFW profile instead of Dehnen
 
-int const DYNAMICALFRICTION_MAIN = 1;  // Compute dynamical friction from fixed galaxy?
-int const DYNAMICALFRICTION_COMPANION = 0;  // Compute dynamical friction from other galaxies?
+int const DYNAMICALFRICTION_MAIN = 0;  // Compute dynamical friction from fixed galaxy?
+int const DYNAMICALFRICTION_COMPANION = 1;  // Compute dynamical friction from other galaxies?
 //Allen & Santillan potential constants
 double const b1 = 230.0;        //I12 //[pc]
 double const M1 = 9.4888e09;    //I12 //[solar masses]
