@@ -125,6 +125,7 @@ int rk4_drv(double *t,
 	double xe1[3], ve1[3], difftemp, dist; 
         double old_dist = -1.0;
         double rt = 1e+5;
+        double rt_temp;
 	int dir = -1;
         int k, n;
 	int ngals = parameters.ngals;
@@ -179,12 +180,12 @@ int rk4_drv(double *t,
 			    (*(gal+n)).vel[k]=(*(gal+n)).velt[k];
 		        }
 		        // Testing tidal stripping using equal mass galaxies with Hernquist Halos
-		        rt_temp = sqrt(pow(gal[0].pos[0]-gal[1].pos[0], 2) +
-		                  pow(gal[0].pos[1]-gal[1].pos[1], 2) +
-		                  pow(gal[0].pos[2]-gal[1].pos[2], 2))/2;
-		        if (rt_temp < rt) {rt = rt_temp;}
+		      //  rt_temp = sqrt(pow(gal[0].pos[0]-gal[1].pos[0], 2) +
+		      //            pow(gal[0].pos[1]-gal[1].pos[1], 2) +
+		      //            pow(gal[0].pos[2]-gal[1].pos[2], 2))/2;
+		      //  if (rt_temp < rt) {rt = rt_temp;}
 		        // Using input parameters
-		        gal[n].mhalo = 1.04737*pow(rt/(rt + 7.3), 2);
+		     //   gal[n].mhalo = 1.04737*pow(rt/(rt + 7.3), 2);
 		    }
 		    if (VARIABLE_TIMESTEPS) {
                         dt = dt*2.0;
@@ -393,7 +394,7 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
     double coulomb = 0.0;
     double X = 0.0;
     double density = 0.0; 
-    double softening = 1.4*1.75;  //epsilon = 0.1kpc
+    double softening = 1.4*2.0;  //epsilon = 0.1kpc
     double sigma = 0.0;
 
     int ngals = parameters.ngals;
@@ -455,26 +456,26 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
              //   coulomb = r*vr*vr/(G*gal[gal_num].mhalo*
              //                  pow(r/(r+gal[gal_num].r_halo), 3.0-gal[gal_num].gamma));  
                 // This assumes that vcirc == sqrt(2)*vdisp and that the mass profile is spherical
-              //  X = 2*sqrt(gal[i].r_halo/(gal[i].mhalo*G))*vr;
+                X = 2*sqrt(gal[i].r_halo/(gal[i].mhalo*G))*vr;
                 // Hernquist 1D velocity dispersion - CForm from Mathematica
-                sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
-                        (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r + 
-                            42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
-                            (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) + 
-                            log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
-                X = vr/(sqrt(2.0)*sigma); 
+             //   sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
+             //           (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r + 
+             //               42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
+             //               (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) + 
+             //               log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
+            //   X = vr/(sqrt(2.0)*sigma); 
 
                 density = (3.0 - gal[i].gamma)*gal[i].mhalo/(4.0*Pi)*
                             gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
  
                 ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);       
+                        (1.0/3.0)*(erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);       
 
                 ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);       
+                        (1.0/3.0)*(erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);       
 
                 az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);       
+                        (1.0/3.0)*(erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);       
 
             }
 
