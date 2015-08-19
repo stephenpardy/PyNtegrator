@@ -1,5 +1,7 @@
 import numpy as np
 cimport numpy as np
+from libc.stdlib cimport malloc, free
+
 
 cdef extern from "orbit.c":
     int orbit(int int_mode,
@@ -7,6 +9,53 @@ cdef extern from "orbit.c":
               dict input_parameters,
               double* output_pos,
               double* output_vel)
+
+    int orbit_new(int int_mode,
+              int ngals,
+              Params parameters,
+              Gal *gal,
+              double* output_pos,
+              double* output_vel)
+
+
+cdef extern from *:
+    struct Gal:
+        double pos[3]
+        double vel[3]
+        double post[3]
+        double velt[3]
+        int ID
+        double mhalo
+        double r_halo
+        double gamma
+        double a2_LMJ
+        double b2_LMJ
+        double M2_LMJ
+        double M1_LMJ
+        double b1_LMJ
+        double c_halo
+        int halo_type
+
+
+    struct Params:
+        double b1_LMJ
+        double M1_LMJ
+        double a2_LMJ
+        double b2_LMJ
+        double M2_LMJ
+        double Mhalo
+        double q_halo
+        double r_halo
+        double gamma
+        double c_halo
+        double halo_type
+        double tpast
+        double tfuture
+        double dt0
+        double dtout
+        int ngals
+        char *outputdir
+
 
 def run(int mode, dict input_parameters):
     cdef str param
@@ -26,10 +75,54 @@ def run(int mode, dict input_parameters):
             print '{} not the correct size'.format(param)
             return None
 
+
     cdef int ngals = input_parameters['rad_gal'].shape[0]
+    cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
+    cdef Params parameters
+
+    # Read parameters
+    parameters.b1_LMJ = input_parameters["b1_LMJ"]
+    parameters.M1_LMJ = input_parameters["M1_LMJ"]
+    parameters.a2_LMJ = input_parameters["a2_LMJ"]
+    parameters.b2_LMJ = input_parameters["b2_LMJ"]
+    parameters.M2_LMJ = input_parameters["M2_LMJ"]
+    parameters.halo_type = input_parameters["halo_type"]
+    parameters.Mhalo = input_parameters["Mhalo"]
+    parameters.q_halo = input_parameters["q_halo"]
+    parameters.r_halo = input_parameters["r_halo"]
+    parameters.tpast = input_parameters["tpast"]
+    parameters.dtout = input_parameters["dtout"]
+    parameters.tfuture = input_parameters["tfuture"]
+    parameters.dt0 = input_parameters['dt0']
+    parameters.ngals = ngals
+
+    if (parameters.halo_type == 1): # NFW
+        parameters.c_halo = input_parameters["c_halo"]
+    else: # Dehnen
+        parameters.gamma = input_parameters["gamma_halo"]
+
+    parameters.outputdir = input_parameters["outputdir"]
+
+    for n in range(ngals):
+        gal[n].mhalo = input_parameters['mass_gal'][n]
+        gal[n].r_halo = input_parameters['rad_gal'][n]
+        gal[n].gamma = input_parameters['gamma_gal'][n]
+        gal[n].c_halo = input_parameters['c_gal'][n]
+        gal[n].a2_LMJ = input_parameters['a2_gal'][n]
+        gal[n].b2_LMJ = input_parameters['b2_gal'][n]
+        gal[n].M2_LMJ = input_parameters['m2_gal'][n]
+        gal[n].M1_LMJ = input_parameters['m1_gal'][n]
+        gal[n].b1_LMJ = input_parameters['b1_gal'][n]
+        gal[n].halo_type = input_parameters['gal_types'][n]
+        for i in range(3):
+            gal[n].pos[i] = input_parameters['pos'][n, i]
+            gal[n].vel[i] = input_parameters['vel'][n, i]
+
     cdef np.ndarray[double, ndim=1, mode="c"] output_pos = np.zeros(3*ngals)
     cdef np.ndarray[double, ndim=1, mode="c"] output_vel = np.zeros(3*ngals)
-    err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
+
+    err = orbit_new(mode, ngals, parameters, gal, &output_pos[0], &output_vel[0])
+    #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
     try:
         _ = output_pos.__str__()
     except:
