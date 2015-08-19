@@ -6,12 +6,6 @@ from libc.stdlib cimport malloc, free
 cdef extern from "orbit.c":
     int orbit(int int_mode,
               int ngals,
-              dict input_parameters,
-              double* output_pos,
-              double* output_vel)
-
-    int orbit_new(int int_mode,
-              int ngals,
               Params parameters,
               Gal *gal,
               double* output_pos,
@@ -121,7 +115,7 @@ def run(int mode, dict input_parameters):
     cdef np.ndarray[double, ndim=1, mode="c"] output_pos = np.zeros(3*ngals)
     cdef np.ndarray[double, ndim=1, mode="c"] output_vel = np.zeros(3*ngals)
 
-    err = orbit_new(mode, ngals, parameters, gal, &output_pos[0], &output_vel[0])
+    err = orbit(mode, ngals, parameters, gal, &output_pos[0], &output_vel[0])
     #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
     try:
         _ = output_pos.__str__()
