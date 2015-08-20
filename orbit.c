@@ -824,6 +824,7 @@ void do_steptail(double dt, double *x, double *v, double *xc, double *vc, double
 }
 
 /* ---------- likelihood evaluation ----------- */
+//pass data in here instead of reading
 double fitness(int N, double **star, double sigma_x, double sigma_v, double sigma_vx, double sigma_mu){
 	if(radio) printf("\nGetting likelihood value...\n");
 	int i, j;
@@ -870,7 +871,7 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
 
         //overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/sigma_OD[j] +
+            normOD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/sigma_OD[j] +
                                 (star[i][1]-n_OD[j][1])*(star[i][1]-n_OD[j][1])/sigma_OD[j]));
         }
 
@@ -886,7 +887,7 @@ double fitness(int N, double **star, double sigma_x, double sigma_v, double sigm
 
         //normalization overdensities
         for (j=0;j<nr_OD;j++) {
-            n_OD[j][2] *=  (1.0/(1.0*N*sigma_OD[j]));
+            normOD[j][2] *=  (1.0/(1.0*N*sigma_OD[j]));
         }
 
         //construction of final likelihood value
