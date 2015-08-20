@@ -1,5 +1,4 @@
 #include "orbit.h"
-//#include "orbit_utils.h"
 #include <Python.h>
 #include <numpy/arrayobject.h>
 
@@ -9,6 +8,7 @@
 
 int orbit(int int_mode,
           int ngals,
+<<<<<<< HEAD
           PyDictObject *input_parameters,
           double* output_pos,
           double* output_vel){
@@ -125,6 +125,8 @@ int orbit(int int_mode,
 
 int orbit_new(int int_mode,
           int ngals,
+=======
+>>>>>>> 01649e16ddf52a1ea0f6b3ad23e32fde3f7a850f
           struct Params parameters,
           struct Gal *gal,
           double* output_pos,
@@ -539,7 +541,7 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
             }
 
             // dynamical friction
-            if (DYNAMICALFRICTION_COMPANION) {
+            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy
 
                 //relative velocity
                 vx = (*v - gal[i].vel[0]);

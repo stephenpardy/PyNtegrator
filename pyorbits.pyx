@@ -6,12 +6,6 @@ from libc.stdlib cimport malloc, free
 cdef extern from "orbit.c":
     int orbit(int int_mode,
               int ngals,
-              dict input_parameters,
-              double* output_pos,
-              double* output_vel)
-
-    int orbit_new(int int_mode,
-              int ngals,
               Params parameters,
               Gal *gal,
               double* output_pos,
@@ -34,6 +28,7 @@ cdef extern from *:
         double M1_LMJ
         double b1_LMJ
         double c_halo
+        int dyn_fric
         int halo_type
 
 
@@ -114,6 +109,7 @@ def run(int mode, dict input_parameters):
         gal[n].M1_LMJ = input_parameters['m1_gal'][n]
         gal[n].b1_LMJ = input_parameters['b1_gal'][n]
         gal[n].halo_type = input_parameters['gal_types'][n]
+        gal[n].dyn_fric = input_parameters['dynamical_friction'][n]
         for i in range(3):
             gal[n].pos[i] = input_parameters['pos'][n, i]
             gal[n].vel[i] = input_parameters['vel'][n, i]
@@ -121,12 +117,13 @@ def run(int mode, dict input_parameters):
     cdef np.ndarray[double, ndim=1, mode="c"] output_pos = np.zeros(3*ngals)
     cdef np.ndarray[double, ndim=1, mode="c"] output_vel = np.zeros(3*ngals)
 
-    err = orbit_new(mode, ngals, parameters, gal, &output_pos[0], &output_vel[0])
+    err = orbit(mode, ngals, parameters, gal, &output_pos[0], &output_vel[0])
     #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
     try:
         _ = output_pos.__str__()
     except:
         pass
+    #free(gal)
     return {'pos': output_pos, 'vel': output_vel}
 
 

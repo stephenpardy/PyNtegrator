@@ -32,6 +32,7 @@ struct Gal // companion galaxies
     double M1_LMJ;
     double b1_LMJ;
     double c_halo;
+    int dyn_fric;  // is dynamical friction turned on for this galaxy?
     int halo_type;
 };
 
@@ -67,7 +68,8 @@ struct Params // Galactic and orbital parameters
 
 int orbit(int int_mode,
           int ngals,
-          PyDictObject *parameters,
+          struct Params parameters,
+          struct Gal *gal,
           double* output_pos,
           double* output_vel);
 
@@ -139,5 +141,5 @@ int const gpot = 3;             //type of Galactic potential (1= Allen & Santill
 //int const NFW = 1;            // Use an NFW profile instead of Dehnen
 
 int const DYNAMICALFRICTION_MAIN = 1;  // Compute dynamical friction from fixed galaxy?
-int const DYNAMICALFRICTION_COMPANION = 0;  // Compute dynamical friction from other galaxies?
+int const DYNAMICALFRICTION_COMPANION = 1;  // Compute dynamical friction from other galaxies?
 
