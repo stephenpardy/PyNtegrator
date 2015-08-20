@@ -8,125 +8,6 @@
 
 int orbit(int int_mode,
           int ngals,
-<<<<<<< HEAD
-          PyDictObject *input_parameters,
-          double* output_pos,
-          double* output_vel){
-    // Note: no input error checking done here. Do that in python wrapper.
-
-    //Construct the parameters from the python dictionary
-    struct Params parameters;
-    parameters.b1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b1_LMJ"));
-    parameters.M1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M1_LMJ"));
-    parameters.a2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "a1_LMJ"));
-    parameters.b2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b2_LMJ"));
-    parameters.M2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M2_LMJ"));
-    parameters.halo_type = PyInt_AsLong(PyDict_GetItemString(input_parameters, "halo_type"));
-    parameters.Mhalo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "Mhalo"));
-    parameters.q_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "q_halo"));
-    parameters.r_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "r_halo"));
-    parameters.tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
-    if (parameters.halo_type == 1) { // NFW
-        parameters.c_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "c_halo"));
-    } else { // Dehnen
-        parameters.gamma = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "gamma_halo"));
-    }
-    double dtout = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dtout"));
-
-    // Get additional parameters
-    parameters.ngals = ngals;
-    PyObject* folder = PyDict_GetItemString(input_parameters, "outputdir");
-    char* folderstr = PyString_AsString(folder);
-    parameters.outputdir = folderstr;
-    // get values for our companion galaxies from the python dictionary
-    PyArrayObject *mass_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "mass_gal");
-    PyArrayObject *rad_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "rad_gal");
-    PyArrayObject *gamma_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "gamma_gal");
-    PyArrayObject *c_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "c_gal");
-    PyArrayObject *a2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "a2_gal");
-    PyArrayObject *b2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b2_gal");
-    PyArrayObject *m2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "m2_gal");
-    PyArrayObject *m1_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "m1_gal");
-    PyArrayObject *b1_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b1_gal");
-    PyArrayObject *halo_types = (PyArrayObject*)PyDict_GetItemString(input_parameters, "gal_types");
-
-    // create the galaxies
-    struct Gal *gal = (struct Gal *) malloc(ngals*sizeof(struct Gal));
-    int ratio, n, i;
-    double tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
-    double tfuture = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tfuture"));
-    double dt0 = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dt0"));
-    ratio = (int) 1.0*tpast/dtout;
-    tpast = 1.0*ratio*dtout;
-    for (n=0; n<ngals; n++){
-            gal[n].mhalo = *((double *) PyArray_GETPTR1(mass_gal, n));
-            gal[n].r_halo = *((double *) PyArray_GETPTR1(rad_gal, n));
-            gal[n].gamma = *((double *) PyArray_GETPTR1(gamma_gal, n));
-            gal[n].c_halo = *((double *) PyArray_GETPTR1(c_gal, n));
-            gal[n].a2_LMJ = *((double *) PyArray_GETPTR1(a2_gal, n));
-            gal[n].b2_LMJ = *((double *) PyArray_GETPTR1(b2_gal, n));
-            gal[n].M2_LMJ = *((double *) PyArray_GETPTR1(m2_gal, n));
-            gal[n].M1_LMJ = *((double *) PyArray_GETPTR1(m1_gal, n));
-            gal[n].b1_LMJ = *((double *) PyArray_GETPTR1(b1_gal, n));
-            gal[n].halo_type = *((int *) PyArray_GETPTR1(halo_types, n));
-    }
-    //Set galaxies in proper place.
-    PyArrayObject *pos = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pos");
-    PyArrayObject *vel = (PyArrayObject*)PyDict_GetItemString(input_parameters, "vel");
-    for (n=0; n<ngals; n++){
-        for (i=0; i<3; i++){
-            gal[n].pos[i] = *(double*)PyArray_GETPTR2(pos, n, i);
-            gal[n].vel[i] = *(double*)PyArray_GETPTR2(vel, n, i);
-        }
-    }
-      //get position of cluster at t = -tpast
-    if (int_mode == 1)
-    {
-        double sign = -1.0;
-        double tmax = tpast;
-        double dtoutt = tpast;
-        double t = tstart;
-        int err;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-
-    //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
-        sign = 1.0;
-        dtoutt = dtout;
-        tmax = tfuture;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d", err);
-    }
-    else
-    {
-        double sign;
-        if (tpast < 0.0)
-            sign = -1.0;
-        else
-            sign = 1.0;
-        double tmax = tpast;
-        double dtoutt = dtout;
-        double t = tstart;
-        int err;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d", err);
-    }
-
-       //}
-    for (n=0; n<ngals; n++){
-        for (i=0; i<3; i++){
-            output_pos[i+n*3] = gal[n].pos[i];
-            output_vel[i+n*3] = gal[n].vel[i];
-        }
-    }
-    free(gal);
-    return 0;
-}
-
-
-int orbit_new(int int_mode,
-          int ngals,
-=======
->>>>>>> 01649e16ddf52a1ea0f6b3ad23e32fde3f7a850f
           struct Params parameters,
           struct Gal *gal,
           double* output_pos,
@@ -407,7 +288,7 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
                                         );
                 }
 
-                coulomb = r3/(1.4*3.0);
+                coulomb = r3/(1.6*3.0);
                 // This assumes that vcirc == sqrt(3)*vdisp and that the dispersion is measured at the scale radius
                 double X;
                 double sigma;
@@ -509,120 +390,120 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 	                                                    + pow(gal[i].b2_LMJ, 2))
 	                                             * (*(x+2) - gal[i].pos[2]);
 
-          r = sqrt(pow(*x - gal[i].pos[0], 2) +
-                   pow(*(x+1) - gal[i].pos[1], 2) +
-                   pow(*(x+2) - gal[i].pos[2], 2));
+        r = sqrt(pow(*x - gal[i].pos[0], 2) +
+               pow(*(x+1) - gal[i].pos[1], 2) +
+               pow(*(x+2) - gal[i].pos[2], 2));
 
-            //Dehnen Halo
-            if (gal[i].halo_type == 1) {
-                ax += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                        pow(gal[i].r_halo + r, 3) * (*x - gal[i].pos[0]);
-                ay += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                        pow(gal[i].r_halo + r, 3) * (*(x+1) - gal[i].pos[1]);
-                az += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                        pow(gal[i].r_halo + r, 3) * (*(x+2) - gal[i].pos[2]);
-            } else if (gal[i].halo_type == 2) {  // NFW
-                constant = -G*gal[i].mhalo/
-                            (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo));
-                ax += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                    1.0/(gal[i].r_halo+r)) * (*x - gal[i].pos[0])/pow(r, 2);
-                ay += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                    1.0/(gal[i].r_halo+r)) * (*(x+1) - gal[i].pos[1])/pow(r, 2);
-                az += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                    1.0/(gal[i].r_halo+r)) * (*(x+2) - gal[i].pos[2])/pow(r, 2);
+        //Dehnen Halo
+        if (gal[i].halo_type == 1) {
+            ax += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                    pow(gal[i].r_halo + r, 3) * (*x - gal[i].pos[0]);
+            ay += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                    pow(gal[i].r_halo + r, 3) * (*(x+1) - gal[i].pos[1]);
+            az += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                    pow(gal[i].r_halo + r, 3) * (*(x+2) - gal[i].pos[2]);
+        } else if (gal[i].halo_type == 2) {  // NFW
+            constant = -G*gal[i].mhalo/
+                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo));
+            ax += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                1.0/(gal[i].r_halo+r)) * (*x - gal[i].pos[0])/pow(r, 2);
+            ay += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                1.0/(gal[i].r_halo+r)) * (*(x+1) - gal[i].pos[1])/pow(r, 2);
+            az += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                1.0/(gal[i].r_halo+r)) * (*(x+2) - gal[i].pos[2])/pow(r, 2);
 
-            } else { // plummer sphere
-                ax += -2.0*G*gal[i].mhalo* (*x - gal[i].pos[0])/
-                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
-                ay += -2.0*G*gal[i].mhalo* (*(x+1) - gal[i].pos[1])/
-                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
-                az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
-                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+        } else { // plummer sphere
+            ax += -2.0*G*gal[i].mhalo* (*x - gal[i].pos[0])/
+                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+            ay += -2.0*G*gal[i].mhalo* (*(x+1) - gal[i].pos[1])/
+                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+            az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
+                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+        }
+
+        // dynamical friction
+        if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy
+
+            //relative velocity
+            vx = (*v - gal[i].vel[0]);
+            vy = (*(v+1) - gal[i].vel[1]);
+            vz = (*(v+2) - gal[i].vel[2]);
+            vr = sqrt(vx*vx + vy*vy + vz*vz);
+            /*
+             * XXXXXXXXXXXXXXXXX
+             * COULOMB LOGARITHM
+             * XXXXXXXXXXXXXXXXX
+             */
+            if (gal[gal_num].halo_type == 1) {
+                // Coulomb logarithm using Dehnen mass
+                coulomb = r*vr*vr/(G*gal[gal_num].mhalo*
+                           pow(r/(r+gal[gal_num].r_halo), 3.0-gal[gal_num].gamma));
+            } else if (gal[gal_num].halo_type == 2) { // NFW
+                 // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                coulomb = r*vr*vr/
+                        (G * // M(r)
+                            4*Pi*(gal[gal_num].mhalo/(4*Pi)/
+                                  (log(1+gal[gal_num].c_halo)-gal[gal_num].c_halo/(1+gal[gal_num].c_halo))*
+                                  pow(r/gal[gal_num].r_halo, 2)/(2*pow(1+r/gal[gal_num].r_halo, 2))
+                                 )
+                        );
+
+            } else {  // Plummer
+                coulomb = r*vr*vr/(G*gal[gal_num].r_halo*gal[gal_num].mhalo*pow(r, 3)*
+                                   sqrt(1+pow(r/gal[gal_num].r_halo, 2))/
+                                   pow(pow(gal[gal_num].r_halo, 2) + pow(r, 2), 2)
+                                  );
+            }
+            coulomb = r/(1.4*3.0);
+            /*
+             * XXXXXXXXXXXXXXXXXXXXXXXXX
+             * X and Velocity dispersion
+             * XXXXXXXXXXXXXXXXXXXXXXXXX
+             */
+            if (gal[i].halo_type == 1){
+            // Hernquist 1D velocity dispersion - CForm from Mathematica
+                sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
+                        (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r +
+                            42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
+                            (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) +
+                            log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
+            }
+            if (gal[i].halo_type == 2) {  //NFW
+                // Numerical fit where max is at r=2.16258*a
+                double rvmax = 2.16258;
+                double VMAX = sqrt(G*gal[i].mhalo/
+                                    (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))
+                                    /(rvmax*gal[i].r_halo)*
+                                    (log(1+rvmax)-rvmax/(1+rvmax)));
+                // fitting formula from Zentner and Bullock 2003, eq. 6)
+                sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
+            } else { //Plummer
+                sigma = 3.0*sqrt(pow(gal[i].r_halo, 5)*G*gal[i].mhalo*
+                                pow(1+pow(r/gal[i].r_halo, 2), 2.5)/
+                                (6.0*pow(pow(gal[i].r_halo, 2)+pow(r, 2), 3)));
             }
 
-            // dynamical friction
-            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy
+            X = vr/(sqrt(2.0)*sigma);
+            if (gal[i].halo_type == 1) { //Hernquist
+                density = (3.0 - gal[i].gamma)*gal[i].mhalo/(4.0*Pi)*
+                          gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
+            } else if (gal[i].halo_type == 2) { //NFW
+                // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                density = gal[i].mhalo/(4.0*Pi*pow(gal[i].r_halo, 3))/
+                                    (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))/
+                                    (r/gal[i].r_halo*pow(1+r/gal[i].r_halo, 2));
+            } else { //Plummer
+                density = 3*gal[i].mhalo/(4*Pi*pow(gal[i].r_halo, 3)*
+                            pow(1+pow(r/gal[i].r_halo, 2), 2.5));
+            }
+            ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
 
-                //relative velocity
-                vx = (*v - gal[i].vel[0]);
-                vy = (*(v+1) - gal[i].vel[1]);
-                vz = (*(v+2) - gal[i].vel[2]);
-                vr = sqrt(vx*vx + vy*vy + vz*vz);
-                /*
-                 * XXXXXXXXXXXXXXXXX
-                 * COULOMB LOGARITHM
-                 * XXXXXXXXXXXXXXXXX
-                 */
-                if (gal[gal_num].halo_type == 1) {
-                    // Coulomb logarithm using Dehnen mass
-                    coulomb = r*vr*vr/(G*gal[gal_num].mhalo*
-                               pow(r/(r+gal[gal_num].r_halo), 3.0-gal[gal_num].gamma));
-                } else if (gal[gal_num].halo_type == 2) { // NFW
-                     // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                    coulomb = r*vr*vr/
-                            (G * // M(r)
-                                4*Pi*(gal[gal_num].mhalo/(4*Pi)/
-                                      (log(1+gal[gal_num].c_halo)-gal[gal_num].c_halo/(1+gal[gal_num].c_halo))*
-                                      pow(r/gal[gal_num].r_halo, 2)/(2*pow(1+r/gal[gal_num].r_halo, 2))
-                                     )
-                            );
+            ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);
 
-                } else {  // Plummer
-                    coulomb = r*vr*vr/(G*gal[gal_num].r_halo*gal[gal_num].mhalo*pow(r, 3)*
-                                       sqrt(1+pow(r/gal[gal_num].r_halo, 2))/
-                                       pow(pow(gal[gal_num].r_halo, 2) + pow(r, 2), 2)
-                                      );
-                }
-                coulomb = r/(1.4*3.0);
-                /*
-                 * XXXXXXXXXXXXXXXXXXXXXXXXX
-                 * X and Velocity dispersion
-                 * XXXXXXXXXXXXXXXXXXXXXXXXX
-                 */
-                if (gal[i].halo_type == 1){
-                // Hernquist 1D velocity dispersion - CForm from Mathematica
-                    sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
-                            (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r +
-                                42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
-                                (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) +
-                                log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
-                }
-                if (gal[i].halo_type == 2) {  //NFW
-                    // Numerical fit where max is at r=2.16258*a
-                    double rvmax = 2.16258;
-                    double VMAX = sqrt(G*gal[i].mhalo/
-                                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))
-                                        /(rvmax*gal[i].r_halo)*
-                                        (log(1+rvmax)-rvmax/(1+rvmax)));
-                    // fitting formula from Zentner and Bullock 2003, eq. 6)
-                    sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
-                } else { //Plummer
-                    sigma = 3.0*sqrt(pow(gal[i].r_halo, 5)*G*gal[i].mhalo*
-                                    pow(1+pow(r/gal[i].r_halo, 2), 2.5)/
-                                    (6.0*pow(pow(gal[i].r_halo, 2)+pow(r, 2), 3)));
-                }
-
-                X = vr/(sqrt(2.0)*sigma);
-                if (gal[i].halo_type == 1) { //Hernquist
-                    density = (3.0 - gal[i].gamma)*gal[i].mhalo/(4.0*Pi)*
-                              gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
-                } else if (gal[i].halo_type == 2) { //NFW
-                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                    density = gal[i].mhalo/(4.0*Pi*pow(gal[i].r_halo, 3))/
-                                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))/
-                                        (r/gal[i].r_halo*pow(1+r/gal[i].r_halo, 2));
-                } else { //Plummer
-                    density = 3*gal[i].mhalo/(4*Pi*pow(gal[i].r_halo, 3)*
-                                pow(1+pow(r/gal[i].r_halo, 2), 2.5));
-                }
-                ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
-
-                ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);
-
-                az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
-                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
+            az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
 
             }
 
