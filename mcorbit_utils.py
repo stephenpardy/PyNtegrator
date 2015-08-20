@@ -2,6 +2,59 @@ import numpy as np
 from math import *
 import sys
 import scipy.optimize
+import inspect
+
+
+def printcol(*arg, **kwarg):
+    # Print vectors in columns
+    # Use: printcol <vec1> <vec2> .. <vecn> (<fout='path to file'>)
+    # Default: fout=sys.stdout
+    #
+
+    # Set output
+    if kwarg:
+        f = open(kwarg['fout'], 'w')
+    else:
+        f = sys.stdout
+
+    # Get variable names
+    frame = inspect.currentframe()
+    frame2 = inspect.getouterframes(frame)[1]
+    string = inspect.getframeinfo(frame2[0]).code_context[0].strip()
+    args = string[string.find('(') + 1:-1].split(',')
+
+    names = []
+    for i in args:
+        if i.find('=') != -1:
+            names.append(i.split('=')[1].strip())
+        else:
+            names.append(i)
+
+    Ncol = len(arg)
+    Nrow = np.zeros(Ncol)
+
+    for i in range(Ncol):
+        Nrow[i] = len(arg[i])
+
+    Nmax = int(np.max(Nrow))
+
+    # Print
+    print>>f, ("#"),
+    for i in range(len(names)):
+        print>>f, ("%s\t" % names[i]),
+    print>>f, ("\n#\n"),
+
+    for i in range(Nmax):
+        for j in range(Ncol):
+            if i < Nrow[j]:
+                print>>f, ('%g\t' % arg[j][i]),
+            else:
+                print>>f, ('\t'),
+        print>>f, ('\n'),
+
+    # print Ncol, Nrow
+    if kwarg:
+        f.close()
 
 
 def load_OD(filename):

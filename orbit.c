@@ -1,174 +1,185 @@
 #include "orbit.h"
-#include "orbit_utils.h"
+//#include "orbit_utils.h"
+#include <Python.h>
+#include <numpy/arrayobject.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit(double *fit,
-          double mass_cluster,
-          double pm_mu_delta,
-          double pm_mu_alphacosdelta,
-          double mass_halo,
-          double distance_cluster,
-          double mass_loss_rate,
-          double q_halo,
-          double r_halo,
-          double tpast,
-          double rgalsun,
-          double vLSR,
-          double sigma_x,
-          double sigma_v,
-          double sigma_vx,
-          double sigma_mu,
-          int newspaper) {
+int orbit(int int_mode,
+          int ngals,
+          PyDictObject *input_parameters,
+          double* output_pos,
+          double* output_vel){
+    // Note: no input error checking done here. Do that in python wrapper.    
 
+    //Construct the parameters from the python dictionary
+    struct Params parameters;
+    parameters.b1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b1_LMJ"));
+    parameters.M1_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M1_LMJ"));
+    parameters.a2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "a1_LMJ"));
+    parameters.b2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "b2_LMJ"));
+    parameters.M2_LMJ = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "M2_LMJ"));
+    parameters.halo_type = PyInt_AsLong(PyDict_GetItemString(input_parameters, "halo_type"));
+    parameters.Mhalo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "Mhalo"));
+    parameters.q_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "q_halo"));
+    parameters.r_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "r_halo"));
+    parameters.tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
+    if (parameters.halo_type == 1) { // NFW
+        parameters.c_halo = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "c_halo"));
+    } else { // Dehnen
+        parameters.gamma = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "gamma_halo"));
+    }
+    double dtout = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dtout"));
 
-	*fit = SUPERSMALL;
-	int err;
+    // Get additional parameters
+    parameters.ngals = ngals;
+    PyObject* folder = PyDict_GetItemString(input_parameters, "outputdir");
+    char* folderstr = PyString_AsString(folder);
+    parameters.outputdir = folderstr;
+    // get values for our companion galaxies from the python dictionary
+    PyArrayObject *mass_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "mass_gal");
+    PyArrayObject *rad_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "rad_gal");
+    PyArrayObject *gamma_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "gamma_gal");
+    PyArrayObject *c_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "c_gal");
+    PyArrayObject *a2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "a2_gal");
+    PyArrayObject *b2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b2_gal");
+    PyArrayObject *m2_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "m2_gal");
+    PyArrayObject *m1_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "m1_gal");
+    PyArrayObject *b1_gal = (PyArrayObject*)PyDict_GetItemString(input_parameters, "b1_gal");
+    PyArrayObject *halo_types = (PyArrayObject*)PyDict_GetItemString(input_parameters, "gal_types");
 
-    //round simulation time to multiple of output time
-    int ratio;
+    // create the galaxies 
+    struct Gal *gal = (struct Gal *) malloc(ngals*sizeof(struct Gal));
+    int ratio, n, i;
+    double tpast = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tpast"));
+    double tfuture = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "tfuture"));
+    double dt0 = PyFloat_AsDouble(PyDict_GetItemString(input_parameters, "dt0"));
     ratio = (int) 1.0*tpast/dtout;
     tpast = 1.0*ratio*dtout;
-
-    //put the MCMC parameters in the appropriate array for passing it to the integrator
-    double parameter[17];
-    parameter[0] = mass_cluster;            //mass of cluster
-    parameter[1] = pm_mu_delta;             //delta component of proper motion
-    parameter[2] = pm_mu_alphacosdelta;     //alpha component of proper motion
-    parameter[3] = mass_halo;               //mass of DM halo
-    parameter[4] = distance_cluster;        //distance cluster-sun
-    parameter[6] = rgalsun;                 //distance sun-galactic center
-    parameter[7] = vLSR;                    //y-velocity of LSR
-    parameter[8] = mass_loss_rate;               //cluster mass loss rate
-    parameter[10] = q_halo;                 //flattening of dark halo
-    parameter[11] = r_halo;                 //concentration of dark halo
-    parameter[12] = tpast;                //integration time
-    parameter[13] = sigma_x;                //smoothing position of overdensities
-    parameter[14] = sigma_v;                //smoothing v_r
-    parameter[15] = sigma_vx;               //smoothing position of v_r stars
-    parameter[16] = sigma_mu;              //smoothing proper motions of v_r stars
-
-
-    //convert coordinates into Cartesian frame
-	double x[3];
-    double v[3];
-    double dsuntemp;
-    double vrsuntemp;
-    double vrtemp;
-    double ltemp;
-    double btemp;
-    double lcosbtemp;
-    double RAtemp;
-    double DECtemp;
-    double mu_alphatemp;
-    double mu_alphacosdeltatemp;
-    double mu_deltatemp;
-    double mutemp;
-    double PAtemp;
-    double vLSRtemp;
-	dsuntemp = parameter[4]*1000.0;
-	mu_alphatemp = 0.0;
-	mu_alphacosdeltatemp = parameter[2]*1000.0;
-	mu_deltatemp = parameter[1]*1000.0;
-	vrsuntemp = vr;
-	ltemp = l;
-	btemp = b;
-	lcosbtemp = lcosb;
-	vLSRtemp = vLSR;
-	convert(x,
-            v,
-            &dsuntemp,
-            &vrsuntemp,
-            &vrtemp,
-            &ltemp,
-            &btemp,
-            &lcosbtemp,
-            &RAtemp,
-            &DECtemp,
-            &mu_alphatemp,
-            &mu_alphacosdeltatemp,
-            &mu_deltatemp,
-            &mutemp,
-            &PAtemp,
-            2,
-            2,
-            0,
-            vLSRtemp,
-            rgalsun);
-
-
-    //get the acceleration at cluster's position
-	double atemp[3];
-	getforce(x,v,atemp,parameter);
-
-
-	//get the acceleration at solar circle
-	double xsuntemp[3], vsuntemp[3], asuntemp[3], Vcirc;
-	xsuntemp[0]=rgalsun;
-	xsuntemp[1]=0.0;
-	xsuntemp[2]=0.0;
-	vsuntemp[0]=0.0;
-	vsuntemp[1]=0.0;
-	vsuntemp[2]=0.0;
-	getforce(xsuntemp,vsuntemp,asuntemp,parameter);
-	Vcirc = sqrt(rgalsun*sqrt(asuntemp[0]*asuntemp[0]+asuntemp[1]*asuntemp[1]+asuntemp[2]*asuntemp[2]));
-
-    //set unrealistic parameters to artificially low likelihood value
-	//if (Vcirc > 300.0 || Vcirc < 160.0) {
-    //    *fit = SUPERSMALL;
-    //} else {
-
-    //get position of cluster at t = -tpast
-    double sign = -1.0;
-    double tmax = tpast;
-    double dtoutt = tpast;
-    double t = tstart;
-    rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper);
-
-
-    //save whatever initial conditions for possible restarts
-    double xrestart[3], vrestart[3], trestart;
-    xrestart[0] = x[0];
-    xrestart[1] = x[1];
-    xrestart[2] = x[2];
-    vrestart[0] = v[0];
-    vrestart[1] = v[1];
-    vrestart[2] = v[2];
-    trestart = t;
-
-    double tspan = sqrt(pow(tpast-tstart,2));
-    *fit = SUPERSMALL;
-
-    //integrate cluster orbit backwards to t = -tint
-    x[0] = xrestart[0];
-    x[1] = xrestart[1];
-    x[2] = xrestart[2];
-    v[0] = vrestart[0];
-    v[1] = vrestart[1];
-    v[2] = vrestart[2];
-    t = trestart;
+    for (n=0; n<ngals; n++){
+            gal[n].mhalo = *((double *) PyArray_GETPTR1(mass_gal, n));
+            gal[n].r_halo = *((double *) PyArray_GETPTR1(rad_gal, n));
+            gal[n].gamma = *((double *) PyArray_GETPTR1(gamma_gal, n));
+            gal[n].c_halo = *((double *) PyArray_GETPTR1(c_gal, n));
+            gal[n].a2_LMJ = *((double *) PyArray_GETPTR1(a2_gal, n));
+            gal[n].b2_LMJ = *((double *) PyArray_GETPTR1(b2_gal, n));
+            gal[n].M2_LMJ = *((double *) PyArray_GETPTR1(m2_gal, n));
+            gal[n].M1_LMJ = *((double *) PyArray_GETPTR1(m1_gal, n));
+            gal[n].b1_LMJ = *((double *) PyArray_GETPTR1(b1_gal, n)); 
+            gal[n].halo_type = *((int *) PyArray_GETPTR1(halo_types, n));
+    }
+    //Set galaxies in proper place.
+    PyArrayObject *pos = (PyArrayObject*)PyDict_GetItemString(input_parameters, "pos");
+    PyArrayObject *vel = (PyArrayObject*)PyDict_GetItemString(input_parameters, "vel");
+    for (n=0; n<ngals; n++){
+        for (i=0; i<3; i++){
+            gal[n].pos[i] = *(double*)PyArray_GETPTR2(pos, n, i);
+            gal[n].vel[i] = *(double*)PyArray_GETPTR2(vel, n, i);
+        }
+    }
+      //get position of cluster at t = -tpast
+    if (int_mode == 1)
+    {
+        double sign = -1.0;
+        double tmax = tpast;
+        double dtoutt = tpast;
+        double t = tstart;
+        int err;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
 
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
-    sign = 1.0;
-    dtoutt = dtout;
-    tmax = tfuture;
-    if (radio) printf("\nt = %f\tdtout = %f\n",t,dtout);
-    err = rk4_drv(&t,tmax,dtoutt,mdiff,&x[0],&v[0],sign,parameter,fit,newspaper);
+        sign = 1.0;
+        dtoutt = dtout;
+        tmax = tfuture;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
+        printf("%d", err); 
+    }
+    else 
+    {
+        double sign;
+        if (tpast < 0.0)
+            sign = -1.0;
+        else 
+            sign = 1.0;
+        double tmax = tpast;
+        double dtoutt = dtout;
+        double t = tstart;
+        int err;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
+        printf("%d", err);
+    }
 
-    //}
+       //}
+    for (n=0; n<ngals; n++){
+        for (i=0; i<3; i++){
+            output_pos[i+n*3] = gal[n].pos[i];
+            output_vel[i+n*3] = gal[n].vel[i];
+        }
+    }
+    free(gal);
+    return 0;
+}
 
-    //set lower bound on likelihood value
-	if (err || *fit < SUPERSMALL) *fit = SUPERSMALL;
 
-	printf("%9.4f\t%7.1f\t%9.7f\t%9.7f\t%10.6e\t%5.3f\t%8.1f\t%6.4f\t%6.1f\t%10.4f\t%6.1f\t%6.1f\t%6.2f\t%.0f\t%3.2f\t%3.2f\t%3.2f\t%3.2f\n",
-            *fit, parameter[0], parameter[1], parameter[2], parameter[3],
-            parameter[10], parameter[11], parameter[4], parameter[8], parameter[6],
-            parameter[7], sqrt(atemp[0]*atemp[0]+atemp[1]*atemp[1]+atemp[2]*atemp[2]),
-            Vcirc, tpast, sigma_x, sigma_v, sigma_vx, sigma_mu);
+int orbit_new(int int_mode,
+          int ngals,
+          struct Params parameters,
+          struct Gal *gal,
+          double* output_pos,
+          double* output_vel){
+   
 
-	return 0;
+    int ratio, n, i;
+    double tpast = parameters.tpast;  // add to orbit.h
+    double tfuture = parameters.tfuture; // add to orbit.h
+    double dt0 = parameters.dt0; // add to orbit.h
+    double dtout = parameters.dtout;
+    ratio = (int) 1.0*tpast/dtout;
+    tpast = 1.0*ratio*dtout;
+    
+    //get position of cluster at t = -tpast
+    if (int_mode == 1)
+    {
+        double sign = -1.0;
+        double tmax = tpast;
+        double dtoutt = tpast;
+        double t = tstart;
+        int err;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
+
+    //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
+        sign = 1.0;
+        dtoutt = dtout;
+        tmax = tfuture;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
+        printf("%d", err); 
+    }
+    else 
+    {
+        double sign;
+        if (tpast < 0.0)
+            sign = -1.0;
+        else 
+            sign = 1.0;
+        double tmax = tpast;
+        double dtoutt = dtout;
+        double t = tstart;
+        int err;
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
+        printf("%d", err);
+    }
+
+       //}
+    for (n=0; n<ngals; n++){
+        for (i=0; i<3; i++){
+            output_pos[i+n*3] = gal[n].pos[i];
+            output_vel[i+n*3] = gal[n].vel[i];
+        }
+    }
+    free(gal);
+    return 0;
 }
 
 
@@ -176,731 +187,518 @@ int orbit(double *fit,
 int rk4_drv(double *t,
             double tmax,
             double dtout,
+            double dt0,
             double mdiff,
-            double *x,
-            double *v,
-            double sign,
-            double *parameter,
-            double *fit,
-            int newspaper){
-
-    void write_snapshot_tail(double next_snap, double *xtemp, double *vtemp);
-    void write_snapshot_cluster(double next_snap, double *xtemp, double *vtemp);
-	double tout,diff,dt, mdifft,dttemp = 0.0;
-    double next_snap_cluster, next_snap_tail = 0.0;
-	double atemp[3], xe1[3], xe2[3], ve1[3], ve2[3], xt[3], vt[3], vmaxwell,vtemp, omega[3], omegat, xc[3], vc[3], ac[3];
-	double actualclustermass;
-    double rgalsun = parameter[6];
-	int k,i;
-	int err;
-	double tt, r;
-	mdifft = mdiff;
-    char name[50];
-    FILE *fz;
-    sprintf(name, "temp.dat");
-    double tpast;
-    tpast = parameter[12];
-    if (newspaper) fz = fopen(name,"w");
-    //int snapnumber = 0;
-
+            struct Gal *gal,
+            struct Params parameters,
+            double sign){
+        struct OrbitStats stats;
+        int snapnum = 0;
+	double tout, diff, dt = 0.0;
+	double xe1[3], ve1[3], difftemp, dist; 
+        double old_dist = -1.0;
+       // double rt = 1e+5;
+       // double rt_temp;
+	int dir = -1;
+        int k, n;
+	int ngals = parameters.ngals;
+        char name[50];
+        sprintf(name, "temp.dat");
 	//initialize output/insertion of tail particles
-	tout = *t;							/* time of next output/insertion */
-    next_snap_cluster = *t;
-    next_snap_tail = *t;
+	tout = *t;		    /* time of next output/insertion */
 	dt = sign*dt0;                /* initial time step */
-    int NMAX = 2.0*(tstart-tpast)/(1.0*dtout);
-
-	int columns = 5;
-	double **star;
-	star = (double **)calloc(NMAX,sizeof(double *));
-	for (i=0;i<NMAX;i++){
-		star[i] = (double *)calloc(columns,sizeof(double));
-		if (star[i] == NULL) {
-			printf("\nMemory allocation failed!\n");
-			return 0;
-		}
-	}
-
-	int starcount = 0;
-	*fit = SUPERSMALL;
-
-
 	//integrate cluster
 	do {
-
 		/***********
 		 * CLUSTER *
 		 ***********/
-
-		if (sign**t>=sign*(tout)) {              /* output */
-
-			//coordtype: 1 = equatorial to galactic and cartesian, 2 = galactic to equatorial and cartesian, 3 = cartesian to equatorial and galactic
-			//vcoordtype: 1 = mu & position angle; 2 = mu_alpha & mu_delta or mu_alphacos(delta) & mu_delta; 3 = cartesian velocities
-			double dsuntemp;
-            double vrsuntemp;
-            double vrtemp;
-            double ltemp;
-            double btemp;
-            double lcosbtemp;
-            double RAtemp;
-            double DECtemp;
-            double mu_alphatemp;
-            double mu_alphacosdeltatemp;
-            double mu_deltatemp;
-            double mutemp;
-            double PAtemp;
-            double vLSRtemp;
-			vLSRtemp = parameter[7];
-
-
-			//integrate test tail particle for leading and trailing tail from current cluster position to time of observation, i.e. today
-			if ((tails) && (sign>0.0) && (sign**t<=sign*tmax) && (sign**t<tstart))  {
-
-				actualclustermass = parameter[0]+sqrt(*t**t)*parameter[8];
-				parameter[9] = sqrt(*t**t);
-
-				if (radio) printf("M(t) = %f\n", actualclustermass);
-
-
-				/****************
-				 * LEADING TAIL *
-				 ****************/
-
-				r = sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]);
-				vtemp = sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
-				omega[0] = (x[1]*v[2]-x[2]*v[1])/(r*r);
-				omega[1] = (x[2]*v[0]-x[0]*v[2])/(r*r);
-				omega[2] = (x[0]*v[1]-x[1]*v[0])/(r*r);
-				omegat = sqrt(omega[0]*omega[0]+omega[1]*omega[1]+omega[2]*omega[2]);
-
-				double rtide, rtidef, dphi;
-
-				double at[3], at2[3]; //force evaluation for dphi
-				for (i=0;i<3;i++) {
-					xt[i] = x[i]/(1.0*r)*(r-20.0);
-					vt[i] = 0.0;
-				}
-				getforce(xt,vt,at,parameter);
-				for (i=0;i<3;i++) xt[i] = x[i]/(1.0*r)*(r+20.0);
-				getforce(xt,vt,at2,parameter);
-
-				dphi = (sqrt(at[0]*at[0]+at[1]*at[1]+at[2]*at[2])-sqrt(at2[0]*at2[0]+at2[1]*at2[1]+at2[2]*at2[2]))/40.0;
-				rtide = pow(G*parameter[0]/sqrt(pow((dphi+omegat*omegat),2)),1.0/3.0);
-
-
-				if (rtide>parameter[5]) rtidef = rtide; //in case edge radius is wanted
-				else rtidef = parameter[5];
-
-				do {
-					tt = *t;
-					for (i=0;i<3;i++) {
-						xc[i] = x[i];
-						vc[i] = v[i];
-					}
-
-					if (radio) printf("tt = %.0f\trtide = %.1f\tomega = %.5f\tr = %.1f\t\t", tt, rtidef,omegat,r);
-
-					vmaxwell = 1.0/3.0*sqrt(pow(get_gauss()*vrexcess,2)+pow(get_gauss()*vrexcess,2)+pow(get_gauss()*vrexcess,2));
-					//printf("\tv1 = %g", vmaxwell);
-
-					for (i=0;i<3;i++) {
-                        xt[i] = x[i]/(1.0*r)*(r-rtidef)+rexcess*rtidef*get_gauss();
-                        vt[i] = v[i]/vtemp*(vtemp-omegat*rtidef)-(vmaxwell*x[i]/(1.0*r));
-					}
-
-					err = rk4_drvtail(&tt,tstart,mdifft,&xt[0],&vt[0],sign,xc,vc,parameter, next_snap_tail);
-
-					if (err==1) {
-						for (i=0;i<NMAX;i++) free (star[i]);
-						free(star);
-                        if (newspaper) fclose(fz);
-						return 1;
-					} else if (err ==2) {
-						rtidef += 10.0;
-						if (rtidef>rtidemax) {
-							for (i=0;i<NMAX;i++) free (star[i]);
-							free(star);
-							return 1;
-						}
-					}
-				} while (err);
-                //if (snapshot) write_snapshot(snapfile, xt, vt);
-
-                //store galactic coordinates and radial velocity of tail particle
-				//coordtype: 1 = equatorial to galactic and cartesian, 2 = galactic to equatorial and cartesian, 3 = cartesian to equatorial and galactic
-				//vcoordtype: 1 = mu & position angle; 2 = mu_alpha & mu_delta or mu_alphacos(delta) & mu_delta; 3 = cartesian velocities
-				convert(xt, vt, &dsuntemp, &vrsuntemp, &vrtemp, &ltemp, &btemp, &lcosbtemp, &RAtemp, &DECtemp,
-                        &mu_alphatemp, &mu_alphacosdeltatemp, &mu_deltatemp, &mutemp, &PAtemp, 3, 3, 0, vLSRtemp,rgalsun);
-
-                if (newspaper) fprintf(fz,"%lf %lf %lf %lf %lf %lf\n", ltemp, btemp, lcosbtemp, vrsuntemp, RAtemp, DECtemp);
-
-				star[starcount][0] = RAtemp;
-				star[starcount][1] = DECtemp;
-				star[starcount][2] = vrsuntemp;
-                star[starcount][3] = mu_alphacosdeltatemp;
-                star[starcount][4] = mu_deltatemp;
-				starcount++;
-                next_snap_tail = *t;
-
-
-
-
-				/*****************
-				 * TRAILING TAIL *
-				 *****************/
-
-				do {
-					tt = *t;
-					for (i=0;i<3;i++) {
-						xc[i] = x[i];
-						vc[i] = v[i];
-					}
-
-					vmaxwell = 1.0/3.0*sqrt(pow(get_gauss()*vrexcess,2)+pow(get_gauss()*vrexcess,2)+pow(get_gauss()*vrexcess,2));
-					//printf("\tv2 = %g\n", vmaxwell);
-
-					for (i=0;i<3;i++) {
-                        xt[i] = x[i]/r*(r+rtidef)+rexcess*rtidef*get_gauss();
-                        vt[i] = v[i]/vtemp*(vtemp+omegat*rtidef)+(vmaxwell*x[i]/(1.0*r));
-					}
-
-					err = rk4_drvtail(&tt,tstart,mdifft,&xt[0],&vt[0],sign,xc,vc,parameter, next_snap_tail);
-
-					if (err==1) {
-						for (i=0;i<NMAX;i++) free (star[i]);
-						free(star);
-                        if (newspaper) fclose(fz);
-						return 1;
-					} else if (err ==2) {
-						rtidef += 10.0;
-						if (rtidef>rtidemax) {
-							for (i=0;i<NMAX;i++) free (star[i]);
-							free(star);
-							return 1;
-						}
-					}
-				} while (err);
-
-                //store galactic coordinates and radial velocity of tail particle
-				//coordtype: 1 = equatorial to galactic and cartesian, 2 = galactic to equatorial and cartesian, 3 = cartesian to equatorial and galactic
-				//vcoordtype: 1 = mu & position angle; 2 = mu_alpha & mu_delta or mu_alphacos(delta) & mu_delta; 3 = cartesian velocities
-				//if (snapshot) write_snapshot(snapfile, xt, vt);
-                convert(xt, vt, &dsuntemp, &vrsuntemp, &vrtemp, &ltemp, &btemp, &lcosbtemp, &RAtemp, &DECtemp,
-                        &mu_alphatemp, &mu_alphacosdeltatemp, &mu_deltatemp, &mutemp, &PAtemp, 3, 3, 0, vLSRtemp, rgalsun);
-
-                if (newspaper) fprintf(fz,"%lf %lf %lf %lf %lf %lf\n", ltemp, btemp, lcosbtemp, vrsuntemp, RAtemp, DECtemp);
-
-				star[starcount][0] = RAtemp;
-				star[starcount][1] = DECtemp;
-				star[starcount][2] = vrsuntemp;
-                star[starcount][3] = mu_alphacosdeltatemp;
-                star[starcount][4] = mu_deltatemp;
-				starcount++;
-                next_snap_tail = *t;
-			}
-
-
-			tout+=dtout;              /* increase time of output/next insertion */
+            //advance cluster particle
+	    int count = 0;
+            int laststep = 0;
+	    do {
+	        //if (sign*(*t+dt) > sign*tout) {
+		//	dt = tout-*t;
+                //    laststep = 1;
+                //    printf("setting dt: %lf \n", dt);
+			//}
+		difftemp = 0.0;
+	        diff = 0.0;
+                // loop over each galaxy
+                for (n=0; n<ngals; n++){
+		    for (k=0;k<3;k++) {
+                        (*(gal+n)).post[k] = (*(gal+n)).pos[k];
+                        (*(gal+n)).velt[k] = (*(gal+n)).vel[k];
+			xe1[k]=(*(gal+n)).pos[k];
+			ve1[k]=(*(gal+n)).vel[k];
+		    }
+                    if (VARIABLE_TIMESTEPS) {
+		        do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
+		        do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);  /* Two half steps */
+		        do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);
+		        difftemp = sqrt(pow(xe1[0] - (*(gal+n)).post[0],2) +
+		                        pow(xe1[1] - (*(gal+n)).post[1],2) +
+		                        pow(xe1[2] - (*(gal+n)).post[2],2));
+                        if (difftemp > diff) {diff = difftemp;} // hold highest value to compare with mdiff below
+                    } else {
+		        do_step(dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);      /* One full step */
+                    }
+                }
+                // end loop over each galaxy
+		if (!VARIABLE_TIMESTEPS || (diff<=mdiff)) {         /* Is difference below accuracy threshold? */
+		    *t+=dt;
+		    //update the test particles here
+                    for (n=0; n<ngals; n++){
+		        for (k=0;k<3;k++) {
+			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];/* If yes -> continue and double step size */
+			    (*(gal+n)).vel[k]=(*(gal+n)).velt[k];
+		        }
+		        // Testing tidal stripping using equal mass galaxies with Hernquist Halos
+		      //  rt_temp = sqrt(pow(gal[0].pos[0]-gal[1].pos[0], 2) +
+		      //            pow(gal[0].pos[1]-gal[1].pos[1], 2) +
+		      //            pow(gal[0].pos[2]-gal[1].pos[2], 2))/2;
+		      //  if (rt_temp < rt) {rt = rt_temp;}
+		        // Using input parameters
+		     //   gal[n].mhalo = 1.04737*pow(rt/(rt + 7.3), 2);
+		    }
+		    if (VARIABLE_TIMESTEPS) {
+                        dt = dt*2.0;
+                    }
+		} else {
+		    dt = dt/2.0;
 		}
 
+		if (sign*dt < 0.01*dt0 && !laststep) {
+		    printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
+		    return 1;
+		}
+		count++;
 
+		if (sign*dt > dtmax) {
+		    dt = sign*dtmax;
+		}
 
-        //advance cluster particle
-		int count = 0;
-        int laststep = 0;
-		do {
-			if (sign*(*t+dt) > sign*tout) {
-				dt = tout-*t;
-                laststep = 1;
-			}
-			for (k=0;k<3;k++) {
-				xe1[k]=x[k];
-				xe2[k]=x[k];
-				ve1[k]=v[k];
-				ve2[k]=v[k];
-			}
-			do_step(dt,xe1,ve1,parameter);      /* One full step */
-
-			do_step(0.5*dt,xe2,ve2,parameter);  /* Two half steps */
-			do_step(0.5*dt,xe2,ve2,parameter);
-
-			diff = sqrt(pow(*xe1 - *xe2,2) + pow(*(xe1+1) - *(xe2+1),2) + pow(*(xe1+2) - *(xe2+2),2));
-
-			if (diff<mdiff) {         /* Is difference below accuracy threshold? */
-				*t+=dt;
-				dttemp = dt;
-
-				for (k=0;k<3;k++) {
-					x[k]=xe2[k];          /* If yes -> continue and double step size */
-					v[k]=ve2[k];
-				}
-				dt = dt*2.0;
-			} else {
-				dt = dt/2.0;
-			}
-
-			if (sign*dt < 0.01*dt0 && !laststep) {
-				printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
-				return 1;
-			}
-			count++;
-
-			if (sign*dt > dtmax) {
-				dt = sign*dtmax;
-			}
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
-        if (snapshot)
-        {
-            if (sign**t>=sign*(next_snap_cluster))
-                {
-                    write_snapshot_cluster(next_snap_cluster, xe2, ve2);
-                    next_snap_cluster += dtsnap;
+	    if (sign**t>=sign*(tout)) {
+                if (snapshot){
+                    write_snapshot(parameters, gal, *t, snapnum);
+                    snapnum += 1;
                 }
-		}
-        if ((sqrt(pow(x[0],2)+pow(x[1],2)+pow(x[2],2)) < Rgalmin) || (sqrt(pow(x[0],2)+pow(x[1],2)+pow(x[2],2)) > Rgalmax)  ) return 1;  /* Abort if r is too extreme */
-	} while (sign**t<sign*(tmax));
+                if (orbit_stats) {
+                    //record orbit stats here (pericenters and apocenters etc.)
+                    // could also do it above but I think that would be add too many operations per timestep
+                    dist = sqrt( pow((*(gal+ref_gal)).pos[0]-(*(gal+test_gal)).pos[0], 2) +
+                                 pow((*(gal+ref_gal)).pos[1]-(*(gal+test_gal)).pos[1], 2) +
+                                 pow((*(gal+ref_gal)).pos[2]-(*(gal+test_gal)).pos[2], 2));
+                    if (old_dist >= 0){
+                        if (dir >= 0){
+                        // already have a direction set
+                            if ((dir = 1) && (dist >= old_dist)) {
+                            // moving in and got further away
+                                dir = 0;
+                                stats.dir = dir;
+                                stats.pericenters += 1;
+                            } else if ((dir = 0) && (dist <= old_dist)) {
+                            // moving out and got closer
+                                dir = 1;
+                                stats.apocenters += 1;
+                                stats.dir = dir;
+                            }
+                        } else {
+                        // set direction
+                            if (dist < old_dist) {
+                                dir = 1;  // inward
+                                stats.dir = dir;
+                            } else {
+                                dir = 0;  // outward
+                                stats.dir = dir;
+                            }
+                        }
+                    }
+                    old_dist = dist;
+                }
+                tout+=dtout;              /* increase time of output/next insertion */
+            }
+            
 
-
-	//last printout
-	double dsuntemp, vrsuntemp, vrtemp, ltemp, btemp, lcosbtemp, RAtemp, DECtemp, mu_alphatemp, mu_alphacosdeltatemp, mu_deltatemp, mutemp, PAtemp, vLSRtemp;
-	vLSRtemp = parameter[7];
-	getforce(x,v,atemp,parameter);
-	convert(x, v, &dsuntemp, &vrsuntemp, &vrtemp, &ltemp, &btemp, &lcosbtemp, &RAtemp, &DECtemp, &mu_alphatemp, &mu_alphacosdeltatemp, &mu_deltatemp, &mutemp, &PAtemp, 3, 3, 0, vLSRtemp,rgalsun);
-	if (radio) printf("\n%.2f\n\n", sqrt(atemp[0]*atemp[0]+atemp[1]*atemp[1]+atemp[2]*atemp[2]));
-
-    if (newspaper) fclose(fz);
-    //if (snapshot) fclose(snapfile);
-    if (starcount) *fit = fitness(starcount, star, parameter[13], parameter[14], parameter[15], parameter[16]);
-
-	for (i=0;i<NMAX;i++) free (star[i]);
-	free(star);
-
+        } while (sign**t<sign*(tmax));
+        // write final snapshot
+        if (snapshot) write_snapshot(parameters, gal, *t, snapnum);
 	return 0;
 
 }
 
-/* --------------- Write Snapshot (currently in csv format) --------------- */
-void write_snapshot_tail(double next_snap, double *xtemp, double *vtemp){
-    double x = xtemp[0] / 1000.0;
-    double y = xtemp[1] / 1000.0; // keep things in kpc
-    double z = xtemp[2] / 1000.0;
-    double v = sqrt(vtemp[0] * vtemp[0] + vtemp[1] * vtemp[1] + vtemp[2] * vtemp[2]);
-    FILE *snapfile;
-    char snapname[50];
-    int snapnumber = - next_snap / dtsnap; // integer number of snapshots
-    struct stat st;
-    sprintf(snapname, "snapshot_tail.csv.%i", snapnumber);
-    int result = stat(snapname, &st);
-    if (!result)
-    {
-       snapfile = fopen(snapname,"a");
-    } else {
-        snapfile = fopen(snapname,"w");
-        fprintf(snapfile,"X,Y,Z,V\n");
-    }
-    fprintf(snapfile,"%10.5f,%10.5f,%10.5f,%10.5f\n", x, y, z, v);
-    fclose(snapfile);
-}
-
-/* --------------- Write Snapshot (currently in csv format) --------------- */
-void write_snapshot_cluster(double next_snap, double *xtemp, double *vtemp){
-    double x = xtemp[0] / 1000.0;
-    double y = xtemp[1] / 1000.0;
-    double z = xtemp[2] / 1000.0;
-    double v = sqrt(vtemp[0] * vtemp[0] + vtemp[1] * vtemp[1] + vtemp[2] * vtemp[2]);
-    FILE *snapfile;
-    char snapname[50];
-    int snapnumber = next_snap / dtsnap; // integer number of snapshots
-    sprintf(snapname, "snapshot_cluster.csv.%i", snapnumber);
-    snapfile = fopen(snapname,"w");
-    fprintf(snapfile,"X,Y,Z,V\n");
-    fprintf(snapfile,"%10.5f,%10.5f,%10.5f,%10.5f\n", x, y, z, v);
-    fclose(snapfile);
-
-}
-
-
-/* --------------- extrapolation method tail --------------- */
-int rk4_drvtail(double *t, double tmax, double mdiff, double *x, double *v, double sign, double *xc, double *vc, double *parameter, double next_snap_tail){
-	double diff,dt;
-	double xe1[3], xe2[3], ve1[3], ve2[3];
-	double xce1[3], xce2[3], vce1[3],vce2[3];
-	int k;
-    int laststep = 0;
-
-	dt = sign*dt0;		/* initial time step */
-
-	while (sign**t<sign*tmax) {
-		if (sign*(*t+dt) > sign*tmax) {
-			dt = tmax-*t;
-            laststep = 1;
-		}
-
-		do {
-			for (k=0;k<3;k++) {
-				xe1[k]=x[k];
-				xe2[k]=x[k];
-				ve1[k]=v[k];
-				ve2[k]=v[k];
-				xce1[k]=xc[k];
-				xce2[k]=xc[k];
-				vce1[k]=vc[k];
-				vce2[k]=vc[k];
-			}
-
-			parameter[9] = sqrt(*t * *t);
-
-			do_steptail(dt,xe1,ve1,xce1,vce1, parameter);
-
-			do_steptail(0.5*dt,xe2,ve2,xce2,vce2, parameter);
-			do_steptail(0.5*dt,xe2,ve2,xce2,vce2, parameter);
-
-			diff = sqrt(pow(*xe1 - *xe2,2) + pow(*(xe1+1) - *(xe2+1),2) + pow(*(xe1+2) - *(xe2+2),2));
-
-			if (diff<mdiff) {
-				*t+=dt;
-
-				for (k=0;k<3;k++) {
-					x[k]=xe2[k];
-					v[k]=ve2[k];
-					xc[k]=xce2[k];
-					vc[k]=vce2[k];
-				}
-				dt = dt*2.0;
-
-			} else {
-				dt = dt/2.0;
-			}
-
-			if ((sign*dt < 0.01*dt0) && !laststep) {
-				printf("Aborted... dt = %lf\n", dt);
-				*t = tmax*2.0;
-				diff = mdiff/2;
-				return 1;
-			}
-
-		} while (diff>mdiff);
-        if (snapshot)
-        {
-            if (sign**t>=sign*(next_snap_tail))
-                {
-                    write_snapshot_tail(next_snap_tail, xe2, ve2);
-                    next_snap_tail += dtsnap;
-                }
-        }
-
-		if (sqrt(pow(x[0]-xc[0],2)+pow(x[1]-xc[1],2)+pow(x[2]-xc[2],2)) < Rstop) return 2; //increase Rtide
-		else if (sqrt(pow(x[0],2)+pow(x[1],2)+pow(x[2],2)) < Rgalmin) return 1;
-        //Add snapshot here??
-	}
-
-	return 0;
-
-}
 
 /* ----------- force ----------- */
-void getforce(double *x, double *v, double *a, double *parameter){
+void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal){
 	double r1, r2, r3;
-	double a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z;
-    double q1, q2, qz, phi, C1, C2, C3, rhalo, vhalo;
-//    double r200, c, deltachar;
-//    double k = 1.3e-7;
+        double ax = 0.0;
+        double ay = 0.0;
+        double az = 0.0;
 
-	if (gpot == 1) {
-		//Allen & Santillan (1991) potential w updated values from Irrgang et al. (2013)
+    // Potential for MW
+	//Hernquist bulge
+	r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
 
-		//Point mass
-		r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2) + b1*b1);
-
-		a1x = -G*M1/(r1*r1*r1)**x;
-		a1y = -G*M1/(r1*r1*r1)**(x+1);
-		a1z = -G*M1/(r1*r1*r1)**(x+2);
-
-		//Miyamato disk
-		r2 = sqrt(*x * *x + *(x+1) * *(x+1) + pow(a2 + sqrt(*(x+2) * *(x+2) + b2*b2),2));
-
-		a2x = -G*M2/(r2*r2*r2) * *x;
-		a2y = -G*M2/(r2*r2*r2) * *(x+1);
-		a2z = -G*M2/(r2*r2*r2) * (a2 + sqrt(*(x+2) * *(x+2) + b2*b2))/sqrt(*(x+2) * *(x+2) + b2*b2) * *(x+2);
-
-		//Log Halo
-		r3 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2)/parameter[10] * *(x+2)/parameter[10]);
-
-		a3x = -G*parameter[3]/(parameter[11]*parameter[11] +parameter[11]*r3) * *x/r3;
-		a3y = -G*parameter[3]/(parameter[11]*parameter[11] +parameter[11]*r3) * *(x+1)/r3;
-		a3z = -G*parameter[3]/(parameter[11]*parameter[11] +parameter[11]*r3) * *(x+2)/(parameter[10]*parameter[10]*r3);
-
-	} else if (gpot == 2) {
-		//Log Halo from Koposov et al. (2010)
-		r3 = *x * *x + *(x+1) * *(x+1) + *(x+2)/parameter[10] * *(x+2)/parameter[10]; //R^2!
-
-		a3x = -G*parameter[3]/parameter[11] *  *x/r3;
-		a3y = -G*parameter[3]/parameter[11] *  *(x+1)/r3;
-		a3z = -G*parameter[3]/parameter[11] *  *(x+2)/(parameter[10]*parameter[10]*r3);
-
-		a1x = a1y = a1z = a2x = a2y = a2z = 0.0;
-
-	} else if (gpot == 3) {
-		//potential from Johnston/Law/Majewski/Helmi
-
-		//Hernquist bulge
-		r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
-
-		a1x = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**x/r1;
-		a1y = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+1)/r1;
-		a1z = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+2)/r1;
-
-		//Miyamato disk
-		r2 = sqrt(*x * *x + *(x+1) * *(x+1) + (a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ))*(a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ)));
-
-		a2x = -G*M2_LMJ/(r2*r2*r2) * *x;
-		a2y = -G*M2_LMJ/(r2*r2*r2) * *(x+1);
-		a2z = -G*M2_LMJ/(r2*r2*r2) * (a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ))/sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ) * *(x+2);
-
-		//NFW Halo
-		r3 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2)/parameter[10] * *(x+2)/parameter[10]);
-
-        a3x = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *x/r3;
-        a3y = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *(x+1)/r3;
-        a3z = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *(x+2)/(parameter[10]*parameter[10]*r3);
-
-//        a3x = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *x/r3;
-//		a3y = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *(x+1)/r3;
-//		a3z = -G*parameter[3]/r3 * (log(1.0 + r3/parameter[11])/r3 - 1.0/(parameter[11]+r3)) * *(x+2)/(parameter[10]*parameter[10]*r3);
-
-	} else if (gpot == 4) {
-        //potential from Law+Majewski 2010
-
-        //Hernquist bulge
-        r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
-
-        a1x = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**x/r1;
-        a1y = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+1)/r1;
-        a1z = -G*M1_LMJ/((r1+b1_LMJ)*(r1+b1_LMJ))**(x+2)/r1;
+	ax += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**x/r1;
+	ay += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+1)/r1;
+	az += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+2)/r1;
 
         //Miyamato disk
-        r2 = sqrt(*x * *x + *(x+1) * *(x+1) + pow(a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ),2));
+	r2 = sqrt(pow(*x, 2) +
+	          pow(*(x+1), 2) +
+	          pow(parameters.a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)), 2));
 
-        a2x = -G*M2_LMJ/(r2*r2*r2) * *x;
-        a2y = -G*M2_LMJ/(r2*r2*r2) * *(x+1);
-        a2z = -G*M2_LMJ/(r2*r2*r2) * (a2_LMJ + sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ))/sqrt(*(x+2) * *(x+2) + b2_LMJ*b2_LMJ) * *(x+2);
+	ax += -G*parameters.M2_LMJ/(r2*r2*r2) * *x;
+	ay += -G*parameters.M2_LMJ/(r2*r2*r2) * *(x+1);
+	az += -G*parameters.M2_LMJ/(r2*r2*r2) * (parameters.a2_LMJ + sqrt(pow(*(x+2), 2)
+	            + pow(parameters.b2_LMJ, 2)))/
+	        sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)) * *(x+2);
 
-        //Logarithmic Halo
-        //USE FIXED PARAMETERS FROM PEARSON+2014, LM+2010
-        q2 = 1.0;
-        // Pay attention!!
-        vhalo = parameter[3];  // this is the "MHALO" Parameter for all other halos... for this halo it is the Vhalo!!
-        rhalo = parameter[11];
-        phi = 97*PI/180.;
-        q1 = 1.38;
-        qz = parameter[10];  // "q_halo"
-        C1 = pow(cos(phi), 2)/pow(q1, 2) + pow(sin(phi), 2)/pow(q2, 2);
-        C2 = pow(cos(phi), 2)/pow(q2, 2) + pow(sin(phi), 2)/pow(q1, 2);
-        C3 = 2 * sin(phi) * cos(phi) * (1.0/pow(q1, 2) - 1.0/pow(q2, 2));
-        double vh2 = vhalo*vhalo;
+        if (parameters.Mhalo > 0.0){
 
-        r3 = C1* *x * *x + C2* *(x+1) * *(x+1) + C3* *x * *(x+1) + *(x+2)/qz * *(x+2)/qz;
+            r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/parameters.q_halo, 2));
 
-        double fac = 0.5*vh2/(r3+rhalo*rhalo);
-        a3x = -fac*(2.*C1* *x +C3 * *(x+1));
-        a3y = -fac*(2.*C2* *(x+1)+C3* *x);
-        a3z = -fac*(2.* *(x+2)/qz/qz);
+            // NFW
+            if (parameters.halo_type == 1) {
+                double constant = -G*parameters.Mhalo/
+                            (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
+                ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
+                ay += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
+                az += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+2)/
+                                    pow(parameters.q_halo*parameters.q_halo*r3, 2);
 
+            } else {
+            //Dehnen Halo
+                ax += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *x;
+                ay += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *(x+1);
+                az += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *(x+2)/pow(parameters.q_halo, 2);
+            }
+            if (DYNAMICALFRICTION_MAIN) {
+                //relative velocity
+                double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2)); 
+                // Coulomb logarithm using Dehnen mass
+                double coulomb;
+                if (gal.halo_type == 1) { // Dehnen
+                    coulomb = r3*vr*vr/(G*gal.mhalo*
+                                pow(r3/(r3+gal.r_halo), 3-gal.gamma));
+                } else if (gal.halo_type == 2) { //NFW
+                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    coulomb = r3*vr*vr/
+                                (G * // M(r)
+                                    4*Pi*(gal.mhalo/(4*Pi)/(log(1+gal.c_halo)-gal.c_halo/(1+gal.c_halo))*
+                                    pow(r3/gal.r_halo, 2)/(2*pow(1+r3/gal.r_halo, 2))
+                                        )
+                                );
+                } else { // Plummer
+                    coulomb = r3*vr*vr/(G*gal.r_halo*gal.mhalo*pow(r3, 3)*
+                                            sqrt(1+pow(r3/gal.r_halo, 2))/
+                                            pow(pow(gal.r_halo, 2) + pow(r3, 2), 2) 
+                                        );
+                }
+
+                coulomb = r3/(1.4*3.0); 
+                // This assumes that vcirc == sqrt(3)*vdisp and that the dispersion is measured at the scale radius
+                double X;
+                double sigma;
+               // if (NFW) {
+               //     X = 1.0/(sqrt(2.0*log(2.0)-1))*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+               // } else {
+               //     X = 2*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
+               // }
+                if (parameters.halo_type == 1) {
+                    // Numerical fit where Vmax is at r=2.16258*a
+                    double rvmax = 2.16258;
+                    double VMAX = sqrt(G*parameters.Mhalo/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))
+                                        /(rvmax*parameters.r_halo)*
+                                        (log(1+rvmax)-rvmax/(1+rvmax)));
+                    // fitting formula from Zentner and Bullock 2003, eq. 6)
+                    sigma = 3.0* VMAX *1.4393*pow(r3, 0.354)/(1+1.1756*pow(r3, 0.725));
+                } else {
+                    sigma = 3.0*sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
+                        (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 + 
+                            42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
+                            (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) + 
+                            log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
+                }
+                X = vr/(sqrt(2)*sigma); 
+     
+                double density;
+                if (parameters.halo_type == 1) {
+                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    density = parameters.Mhalo/(4.0*Pi*pow(parameters.r_halo, 3))/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))/
+                                        (r3/parameters.r_halo*pow(1+r3/parameters.r_halo, 2));             
+                } else {
+                    density = (3 - parameters.gamma)*parameters.Mhalo/(4*Pi)*
+                            parameters.r_halo/(pow(r3, parameters.gamma)*pow(r3 + parameters.r_halo,
+                                                                            4-parameters.gamma));
+                }
+                ax += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);       
+                ay += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);       
+                az += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);       
+            }
+        }
+	*(a+0) = ax;
+	*(a+1) = ay;
+	*(a+2) = az;
+}
+
+
+void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
+    getforce(x, v, a, parameters, gal[gal_num]);
+    int i;
+    double r;
+    double ax = 0.0;
+    double ay = 0.0;
+    double az = 0.0;
+    double vx = 0.0;
+    double vy = 0.0;
+    double vz = 0.0;
+    double vr = 0.0;
+    double constant;
+    double coulomb = 0.0;
+    double X = 0.0;
+    double density = 0.0; 
+    double sigma = 0.0;
+
+    int ngals = parameters.ngals;
+//    double r200, c, deltachar;
+//    double k = 1.3e-7;
+    for (i=0; i<ngals; i++){
+        if (i != gal_num){
+      
+            //Hernquist bulge
+            r = sqrt(pow(*x - gal[i].pos[0], 2) +
+                     pow(*(x+1) - gal[i].pos[1], 2) +
+                     pow(*(x+2) - gal[i].pos[2], 2));
+ 
+	    ax += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+	        (r+gal[i].b1_LMJ))*(*x - gal[i].pos[0])/r;
+	    ay += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+	        (r+gal[i].b1_LMJ))*(*(x+1) - gal[i].pos[1])/r;
+	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+	        (r+gal[i].b1_LMJ))*(*(x+2) - gal[i].pos[2])/r;
+
+            //Miyamato disk
+	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
+	             pow(*(x+1) - gal[i].pos[1], 2) +
+	             pow(gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+	                                      + pow(gal[i].b2_LMJ, 2)), 2)
+	             );
+
+	    ax += -G*gal[i].M2_LMJ/(r*r*r) * (*x - gal[i].pos[0]);
+	    ay += -G*gal[i].M2_LMJ/(r*r*r) * (*(x+1) - gal[i].pos[1]);
+	    az += -G*gal[i].M2_LMJ/(r*r*r) * (gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+	                                                    + pow(gal[i].b2_LMJ, 2)))
+	                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+	                                                    + pow(gal[i].b2_LMJ, 2))
+	                                             * (*(x+2) - gal[i].pos[2]);
+
+          r = sqrt(pow(*x - gal[i].pos[0], 2) +
+                   pow(*(x+1) - gal[i].pos[1], 2) +
+                   pow(*(x+2) - gal[i].pos[2], 2));
+ 
+            //Dehnen Halo
+            if (gal[i].halo_type == 1) {
+                ax += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                        pow(gal[i].r_halo + r, 3) * (*x - gal[i].pos[0]);
+                ay += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                        pow(gal[i].r_halo + r, 3) * (*(x+1) - gal[i].pos[1]);
+                az += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
+                                        pow(gal[i].r_halo + r, 3) * (*(x+2) - gal[i].pos[2]);
+            } else if (gal[i].halo_type == 2) {  // NFW
+                constant = -G*gal[i].mhalo/
+                            (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo));
+                ax += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                    1.0/(gal[i].r_halo+r)) * (*x - gal[i].pos[0])/pow(r, 2);
+                ay += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                    1.0/(gal[i].r_halo+r)) * (*(x+1) - gal[i].pos[1])/pow(r, 2);
+                az += constant * (log(1.0 + r/gal[i].r_halo)/r -
+                                    1.0/(gal[i].r_halo+r)) * (*(x+2) - gal[i].pos[2])/pow(r, 2);
+
+            } else { // plummer sphere
+                ax += -2.0*G*gal[i].mhalo* (*x - gal[i].pos[0])/
+                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+                ay += -2.0*G*gal[i].mhalo* (*(x+1) - gal[i].pos[1])/
+                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);           
+                az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
+                        pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
+            }
+
+            // dynamical friction
+            if (DYNAMICALFRICTION_COMPANION) {
+
+                //relative velocity
+                vx = (*v - gal[i].vel[0]);
+                vy = (*(v+1) - gal[i].vel[1]);
+                vz = (*(v+2) - gal[i].vel[2]);
+                vr = sqrt(vx*vx + vy*vy + vz*vz); 
+                /*
+                 * XXXXXXXXXXXXXXXXX
+                 * COULOMB LOGARITHM
+                 * XXXXXXXXXXXXXXXXX
+                 */
+                if (gal[gal_num].halo_type == 1) {
+                    // Coulomb logarithm using Dehnen mass
+                    coulomb = r*vr*vr/(G*gal[gal_num].mhalo*
+                               pow(r/(r+gal[gal_num].r_halo), 3.0-gal[gal_num].gamma));  
+                } else if (gal[gal_num].halo_type == 2) { // NFW
+                     // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    coulomb = r*vr*vr/
+                            (G * // M(r)
+                                4*Pi*(gal[gal_num].mhalo/(4*Pi)/
+                                      (log(1+gal[gal_num].c_halo)-gal[gal_num].c_halo/(1+gal[gal_num].c_halo))*
+                                      pow(r/gal[gal_num].r_halo, 2)/(2*pow(1+r/gal[gal_num].r_halo, 2))
+                                     )
+                            );
+                    
+                } else {  // Plummer
+                    coulomb = r*vr*vr/(G*gal[gal_num].r_halo*gal[gal_num].mhalo*pow(r, 3)*
+                                       sqrt(1+pow(r/gal[gal_num].r_halo, 2))/
+                                       pow(pow(gal[gal_num].r_halo, 2) + pow(r, 2), 2) 
+                                      );
+                }
+                coulomb = r/(1.4*3.0);
+                /*
+                 * XXXXXXXXXXXXXXXXXXXXXXXXX
+                 * X and Velocity dispersion
+                 * XXXXXXXXXXXXXXXXXXXXXXXXX
+                 */
+                if (gal[i].halo_type == 1){
+                // Hernquist 1D velocity dispersion - CForm from Mathematica
+                    sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
+                            (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r + 
+                                42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
+                                (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) + 
+                                log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
+                }
+                if (gal[i].halo_type == 2) {  //NFW
+                    // Numerical fit where max is at r=2.16258*a
+                    double rvmax = 2.16258;
+                    double VMAX = sqrt(G*gal[i].mhalo/
+                                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))
+                                        /(rvmax*gal[i].r_halo)*
+                                        (log(1+rvmax)-rvmax/(1+rvmax)));
+                    // fitting formula from Zentner and Bullock 2003, eq. 6)
+                    sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
+                } else { //Plummer
+                    sigma = 3.0*sqrt(pow(gal[i].r_halo, 5)*G*gal[i].mhalo*
+                                    pow(1+pow(r/gal[i].r_halo, 2), 2.5)/
+                                    (6.0*pow(pow(gal[i].r_halo, 2)+pow(r, 2), 3)));
+                }
+                
+                X = vr/(sqrt(2.0)*sigma); 
+                if (gal[i].halo_type == 1) { //Hernquist
+                    density = (3.0 - gal[i].gamma)*gal[i].mhalo/(4.0*Pi)*
+                              gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
+                } else if (gal[i].halo_type == 2) { //NFW
+                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    density = gal[i].mhalo/(4.0*Pi*pow(gal[i].r_halo, 3))/
+                                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))/
+                                        (r/gal[i].r_halo*pow(1+r/gal[i].r_halo, 2));             
+                } else { //Plummer
+                    density = 3*gal[i].mhalo/(4*Pi*pow(gal[i].r_halo, 3)*
+                                pow(1+pow(r/gal[i].r_halo, 2), 2.5));
+                }
+                ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);       
+
+                ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);       
+
+                az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+                        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);       
+
+            }
+
+        }
     }
-
-	*(a+0) = a1x + a2x + a3x;
-	*(a+1) = a1y + a2y + a3y;
-	*(a+2) = a1z + a2z + a3z;
-
-}
-
-/* ----------- force tail ----------- */
-void getforcetail(double *x, double *v, double *a, double *xc, double *parameter){
-	//double r1, r2, r3, 
-    double r4;
-	//double a1x, a1y, a1z, a2x, a2y, a2z, a3x, a3y, a3z, 
-    double a4x, a4y, a4z;
-	double actualmass;
-    //double q1, q2, qz, phi, C1, C2, C3, rhalo, vhalo;
-	actualmass = parameter[0]+parameter[9]*parameter[8];
-
-    getforce(x, v, a, parameter);
-
-	//Cluster
-	r4 = sqrt((*x-*xc) * (*x-*xc) + (*(x+1)-*(xc+1)) * (*(x+1)-*(xc+1)) + (*(x+2)-*(xc+2)) * (*(x+2)-*(xc+2)) + R4*R4);
-
-	a4x = -G*actualmass/(r4*r4*r4)*(*x-*xc);
-	a4y = -G*actualmass/(r4*r4*r4)*(*(x+1)-*(xc+1));
-	a4z = -G*actualmass/(r4*r4*r4)*(*(x+2)-*(xc+2));
-/*
-	*(a+0) = a1x + a2x + a3x + a4x;
-	*(a+1) = a1y + a2y + a3y + a4y;
-	*(a+2) = a1z + a2z + a3z + a4z;
-*/
-
-    *(a+0) += a4x;
-    *(a+1) += a4y;
-    *(a+2) += a4z;
+    *(a+0) += ax;
+    *(a+1) += ay;
+    *(a+2) += az;
 
 }
+
 
 /* ---------- advancement ---------- */
-void do_step(double dt, double *x, double *v, double *parameter) {
+void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
 	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 	int k;
 
-	hh = dt*0.5;
-
-	getforce(x,v,acc0, parameter);
+    hh = dt*0.5;
+    if (RK4) {
+	getforce_gals(x, v, acc0, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* first half-step */
 		xt1[k] = *(x+k)+hh**(v+k);
 		vt1[k] = *(v+k)+hh**(acc0+k);
 	}
 
-	getforce(&xt1[0], &vt1[0], acc1, parameter);
+	getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* second half-step */
 		xt2[k] = *(x+k)+hh*vt1[k];
 		vt2[k] = *(v+k)+hh**(acc1+k);
 	}
 
-	getforce(&xt2[0], &vt2[0], acc2, parameter);
+	getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
 		xt3[k] = *(x+k)+dt*vt2[k];
 		vt3[k] = *(v+k)+dt**(acc2+k);
 	}
 
-	getforce(&xt3[0], &vt3[0], acc3, parameter);
+	getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* Runge-Kutta formula */
 		*(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
 		*(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
 	}
-
-}
-
-/* ---------- advancement tail ---------- */
-void do_steptail(double dt, double *x, double *v, double *xc, double *vc, double *parameter) {
-	double hh, acc0[3], acc1[3], acc2[3], acc3[3] ,xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
-	double ac0[3],ac1[3],ac2[3],ac3[3],xct1[3],xct2[3],xct3[3],vct1[3],vct2[3],vct3[3];
-	int k;
-
-	hh = dt*0.5;
-
-	getforcetail(x,v,acc0,xc,parameter);
-	getforce(xc,vc,ac0,parameter);
-	for (k=0;k<3;k++) {
-		xt1[k] = *(x+k)+hh**(v+k);
-		vt1[k] = *(v+k)+hh**(acc0+k);
-		xct1[k] = *(xc+k)+hh**(vc+k);
-		vct1[k] = *(vc+k)+hh**(ac0+k);
-	}
-
-	getforcetail(&xt1[0], &vt1[0], acc1, xct1, parameter);
-	getforce(&xct1[0], &vct1[0], ac1, parameter);
-	for (k=0;k<3;k++) {
-		xt2[k] = *(x+k)+hh*vt1[k];
-		vt2[k] = *(v+k)+hh**(acc1+k);
-		xct2[k] = *(xc+k)+hh*vct1[k];
-		vct2[k] = *(vc+k)+hh**(ac1+k);
-	}
-
-	getforcetail(&xt2[0], &vt2[0], acc2, xct2, parameter);
-	getforce(&xct2[0], &vct2[0], ac2, parameter);
-	for (k=0;k<3;k++) {
-		xt3[k] = *(x+k)+dt*vt2[k];
-		vt3[k] = *(v+k)+dt**(acc2+k);
-		xct3[k] = *(xc+k)+dt*vct2[k];
-		vct3[k] = *(vc+k)+dt**(ac2+k);
-	}
-
-	getforcetail(&xt3[0], &vt3[0], acc3, xct3, parameter);
-	getforce(&xct3[0], &vct3[0], ac3, parameter);
-	for (k=0;k<3;k++) {
-		*(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
-		*(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
-		*(xc+k) += dt/6.0*(*(vc+k)+2.0*(vct1[k]+vct2[k])+vct3[k]);
-		*(vc+k) += dt/6.0*(*(ac0+k)+2.0*(*(ac1+k)+*(ac2+k))+*(ac3+k));
-	}
-
-}
-
-/* ---------- likelihood evaluation ----------- */
-//pass data in here instead of reading
-double fitness(int N, double **star, double sigma_x, double sigma_v, double sigma_vx, double sigma_mu){
-	if(radio) printf("\nGetting likelihood value...\n");
-	int i, j;
-    double chi2;
-    double sigma_x2, sigma_v2, sigma_vx2, sigma_mu2;
-    double n_OD_NGC5466(int i, int j);
-    double n_vr_NGC5466(int i, int j);
-    double n_Belo_NGC5466(int i, int j);
-    double n_Lux_NGC5466(int i, int j);
-    sigma_x2 = sigma_x*sigma_x;
-    sigma_v2 = sigma_v*sigma_v;
-    sigma_vx2 = sigma_vx*sigma_vx;
-    sigma_mu2 = sigma_mu*sigma_mu;
-
-
-    nr_OD = get_OD_data(ODfilename, );
-// Need a way to pass in n_OD
-    nr_vr = get_vr_data(vrfilename, );
-// and n_vr
-	double dl, db, dl2, db2, dvx, dvx2;
-	dl = sqrt(0.125*0.125+sigma_x2);
-	db = sqrt(0.125*0.125+sigma_x2);
-	dvx = sqrt(0.125*0.125+sigma_vx2);
-	dl2 = dl*dl; //squared values
-	db2 = db*db;
-    dvx2 = dvx*dvx;
-
-    for (j=0;j<nr_OD;j++) {
-        sigma_OD[j] =  sigma_x2+n_OD[j][4]*n_OD[j][4]/(8.0*log(2.0));//squared values of sigma_x plus sigma_obs
+    } else {
+        // ai
+        getforce_gals(x, v, acc0, gal_num, gal, parameters);
+        // vi+1/2 and xi+1/2
+        for (k=0;k<3;k++) {
+            vt1[k] = *(v+k)+ *(acc0+k)*hh;
+            xt1[k] = *(x+k)+ *(v+k)*hh;
+        }
     }
-
-	for(i=0;i<N;i++) {
-
-		//if (star[i][0]>180.0) star[i][0] = star[i][0]-360.0; for use with galactic coordinates
-
-        //velocities
-        for (j=0;j<nr_vr;j++) {
-            normvel[j] += exp(-0.5*((star[i][0]-n_vr[j][4])*(star[i][0]-n_vr[j][4])/dvx2 +
-                                    (star[i][1]-n_vr[j][3])*(star[i][1]-n_vr[j][3])/dvx2 +
-                                    (star[i][2]-n_vr[j][0])*(star[i][2]-n_vr[j][0])/(n_vr[j][1]*n_vr[j][1]+sigma_v2) +
-                                    (star[i][3]-n_vr[j][6])*(star[i][3]-n_vr[j][6])/(n_vr[j][8]*n_vr[j][8]+sigma_mu2) +
-                                    (star[i][4]-n_vr[j][7])*(star[i][4]-n_vr[j][7])/(n_vr[j][9]*n_vr[j][9]+sigma_mu2) ));
-        }
-
-        //overdensities
-        for (j=0;j<nr_OD;j++) {
-            normOD[j][2] +=  exp(-0.5*((star[i][0]-n_OD[j][0])*(star[i][0]-n_OD[j][0])/sigma_OD[j] +
-                                (star[i][1]-n_OD[j][1])*(star[i][1]-n_OD[j][1])/sigma_OD[j]));
-        }
-
-	}
-
-    if (N) {
-        //normalization velocities
-        for (j=0;j<nr_vr;j++) {
-            normvel[5] *= (1.0/(1.0*N*dvx2*sqrt(n_vr[j][1]*n_vr[j][1]+sigma_v2)
-                                *sqrt(n_vr[j][8]*n_vr[j][8]+sigma_mu2)
-                                *sqrt(n_vr[j][9]*n_vr[j][9]+sigma_mu2)));
-        }
-
-        //normalization overdensities
-        for (j=0;j<nr_OD;j++) {
-            normOD[j][2] *=  (1.0/(1.0*N*sigma_OD[j]));
-        }
-
-        //construction of final likelihood value
-        chi2 = 0.0;
-
-		for (i=0;i<nr_OD;i++) chi2 += n_OD[i][3]*log(n_OD[i][2]+SMALL);
-        for (i=0;i<nr_vr;i++) chi2 += log(normvel[i]+SMALL);
+}
 
 
-	} else {
-        chi2 = SUPERSMALL;
-	}
-
-	return chi2;
-
+void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
+    int n;
+    int ngals = parameters.ngals;
+    char *folder = parameters.outputdir;
+    FILE *snapfile;
+    char snapname[50];
+    double acc0[3];
+    //printf("%s", folder);
+    sprintf(snapname, "%ssnapshot.csv.%03d", folder, snapnumber);
+    snapfile = fopen(snapname, "w");
+    fprintf(snapfile,"X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
+    for (n=0; n<ngals; n++){
+        getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, parameters);
+        fprintf(snapfile,"%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
+                gal[n].pos[0],
+                gal[n].pos[1],
+                gal[n].pos[2],
+                gal[n].vel[0],
+                gal[n].vel[1],
+                gal[n].vel[2],
+                acc0[0],
+                acc0[1],
+                acc0[2],
+                t);
+    }
+    fclose(snapfile);
 }
