@@ -454,7 +454,7 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                                    pow(pow(gal[gal_num].r_halo, 2) + pow(r, 2), 2)
                                   );
             }
-            coulomb = r/(1.4*3.0);
+            coulomb = r/(1.6*3.0);
             /*
              * XXXXXXXXXXXXXXXXXXXXXXXXX
              * X and Velocity dispersion
@@ -566,7 +566,6 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
     FILE *snapfile;
     char snapname[50];
     double acc0[3];
-    //printf("%s", folder);
     sprintf(snapname, "%ssnapshot.csv.%03d", folder, snapnumber);
     snapfile = fopen(snapname, "w");
     fprintf(snapfile,"X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
