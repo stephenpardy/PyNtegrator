@@ -1,6 +1,6 @@
 import numpy as np
 cimport numpy as np
-from libc.stdlib cimport malloc, free
+from libc.stdlib cimport malloc
 
 
 cdef extern from "orbit.c":
