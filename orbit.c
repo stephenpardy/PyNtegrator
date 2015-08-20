@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit_new(int int_mode,
+int orbit(int int_mode,
           int ngals,
           struct Params parameters,
           struct Gal *gal,
@@ -422,7 +422,7 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
             }
 
             // dynamical friction
-            if (DYNAMICALFRICTION_COMPANION) {
+            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy
 
                 //relative velocity
                 vx = (*v - gal[i].vel[0]);

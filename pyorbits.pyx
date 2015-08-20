@@ -28,6 +28,7 @@ cdef extern from *:
         double M1_LMJ
         double b1_LMJ
         double c_halo
+        int dyn_fric
         int halo_type
 
 
@@ -108,6 +109,7 @@ def run(int mode, dict input_parameters):
         gal[n].M1_LMJ = input_parameters['m1_gal'][n]
         gal[n].b1_LMJ = input_parameters['b1_gal'][n]
         gal[n].halo_type = input_parameters['gal_types'][n]
+        gal[n].dyn_fric = input_parameters['dynamical_friction'][n]
         for i in range(3):
             gal[n].pos[i] = input_parameters['pos'][n, i]
             gal[n].vel[i] = input_parameters['vel'][n, i]
@@ -121,6 +123,7 @@ def run(int mode, dict input_parameters):
         _ = output_pos.__str__()
     except:
         pass
+    #free(gal)
     return {'pos': output_pos, 'vel': output_vel}
 
 
