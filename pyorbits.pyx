@@ -29,7 +29,11 @@ cdef extern from *:
         double b1_LMJ
         double c_halo
         int dyn_fric
+        double dyn_L
+        double dyn_C
+        double dyn_alpha
         int halo_type
+        char *name
 
 
     struct Params:
@@ -41,6 +45,9 @@ cdef extern from *:
         double Mhalo
         double q_halo
         double r_halo
+        double dyn_L
+        double dyn_C
+        double dyn_alpha
         double gamma
         double c_halo
         double halo_type
@@ -54,25 +61,36 @@ cdef extern from *:
 
 def run(int mode, dict input_parameters):
     cdef str param
-    cdef list galaxy_params = ['rad_gal',
-                               'mass_gal',
-                               'gamma_gal',
-                               'a2_gal',
-                               'b2_gal',
-                               'm2_gal',
-                               'pos',
-                               'vel']
-    for param in galaxy_params:
-        if param not in input_parameters.keys():
-            print '{} not in input parameters'.format(param)
-            return None
-        elif input_parameters[param].shape[0] != input_parameters['rad_gal'].shape[0]:
-            print '{} not the correct size'.format(param)
-            return None
+    cdef dict galaxy
 
+    if 'galaxies' not in input_parameters.keys():
+        raise ValueError("Must define galaxies to integrate.")
+        return None
 
-    cdef int ngals = input_parameters['rad_gal'].shape[0]
+    cdef int ngals = len(input_parameters['galaxies'])
     cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
+    for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
+        gal[n].name = gal_name
+        gal[n].mhalo = galaxy['mass']
+        gal[n].r_halo = galaxy['rad']
+        gal[n].gamma = galaxy['gamma']
+        gal[n].c_halo = galaxy['c']
+        gal[n].a2_LMJ = galaxy['a2']
+        gal[n].b2_LMJ = galaxy['b2']
+        gal[n].M2_LMJ = galaxy['m2']
+        gal[n].M1_LMJ = galaxy['m1']
+        gal[n].b1_LMJ = galaxy['b1']
+        gal[n].halo_type = galaxy['type']
+        gal[n].dyn_fric = galaxy['dynamical_friction']
+        if (gal[n].dyn_fric == 1):
+            gal[n].dyn_C = galaxy['dyn_C']
+            gal[n].dyn_L = galaxy['dyn_L']
+            gal[n].dyn_alpha = galaxy['dyn_alpha']
+        for i in range(3):
+            gal[n].pos[i] = galaxy['pos'][i]
+            gal[n].vel[i] = galaxy['vel'][i]
+
+
     cdef Params parameters
 
     # Read parameters
@@ -85,6 +103,9 @@ def run(int mode, dict input_parameters):
     parameters.Mhalo = input_parameters["Mhalo"]
     parameters.q_halo = input_parameters["q_halo"]
     parameters.r_halo = input_parameters["r_halo"]
+    parameters.dyn_L = input_parameters["dyn_L"]
+    parameters.dyn_C = input_parameters["dyn_C"]
+    parameters.dyn_alpha = input_parameters["dyn_alpha"]
     parameters.tpast = input_parameters["tpast"]
     parameters.dtout = input_parameters["dtout"]
     parameters.tfuture = input_parameters["tfuture"]
@@ -97,22 +118,6 @@ def run(int mode, dict input_parameters):
         parameters.gamma = input_parameters["gamma_halo"]
 
     parameters.outputdir = input_parameters["outputdir"]
-
-    for n in range(ngals):
-        gal[n].mhalo = input_parameters['mass_gal'][n]
-        gal[n].r_halo = input_parameters['rad_gal'][n]
-        gal[n].gamma = input_parameters['gamma_gal'][n]
-        gal[n].c_halo = input_parameters['c_gal'][n]
-        gal[n].a2_LMJ = input_parameters['a2_gal'][n]
-        gal[n].b2_LMJ = input_parameters['b2_gal'][n]
-        gal[n].M2_LMJ = input_parameters['m2_gal'][n]
-        gal[n].M1_LMJ = input_parameters['m1_gal'][n]
-        gal[n].b1_LMJ = input_parameters['b1_gal'][n]
-        gal[n].halo_type = input_parameters['gal_types'][n]
-        gal[n].dyn_fric = input_parameters['dynamical_friction'][n]
-        for i in range(3):
-            gal[n].pos[i] = input_parameters['pos'][n, i]
-            gal[n].vel[i] = input_parameters['vel'][n, i]
 
     cdef np.ndarray[double, ndim=1, mode="c"] output_pos = np.zeros(3*ngals)
     cdef np.ndarray[double, ndim=1, mode="c"] output_vel = np.zeros(3*ngals)

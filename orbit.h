@@ -33,7 +33,11 @@ struct Gal // companion galaxies
     double b1_LMJ;
     double c_halo;
     int dyn_fric;  // is dynamical friction turned on for this galaxy?
+    double dyn_L;
+    double dyn_C;
+    double dyn_alpha;
     int halo_type;
+    char *name;
 };
 
 struct OrbitStats // orbital statistcs
@@ -52,7 +56,10 @@ struct Params // Galactic and orbital parameters
     double M2_LMJ;       //[solar masses]
     double Mhalo; //M200 of MW
     double q_halo;  // flattening of halo
-    double r_halo; // scale radius of halo... I think
+    double r_halo; // scale radius of halo
+    double dyn_L;
+    double dyn_C;
+    double dyn_alpha;
     double gamma; //inner slope of halo
     double c_halo; //NFW concentration
     double halo_type; //NFW = 1, dehnen = 0

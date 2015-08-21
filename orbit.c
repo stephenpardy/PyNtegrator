@@ -268,27 +268,12 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
             if (DYNAMICALFRICTION_MAIN) {
                 //relative velocity
                 double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2));
-                // Coulomb logarithm using Dehnen mass
                 double coulomb;
-                if (gal.halo_type == 1) { // Dehnen
-                    coulomb = r3*vr*vr/(G*gal.mhalo*
-                                pow(r3/(r3+gal.r_halo), 3-gal.gamma));
-                } else if (gal.halo_type == 2) { //NFW
-                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                    coulomb = r3*vr*vr/
-                                (G * // M(r)
-                                    4*Pi*(gal.mhalo/(4*Pi)/(log(1+gal.c_halo)-gal.c_halo/(1+gal.c_halo))*
-                                    pow(r3/gal.r_halo, 2)/(2*pow(1+r3/gal.r_halo, 2))
-                                        )
-                                );
-                } else { // Plummer
-                    coulomb = r3*vr*vr/(G*gal.r_halo*gal.mhalo*pow(r3, 3)*
-                                            sqrt(1+pow(r3/gal.r_halo, 2))/
-                                            pow(pow(gal.r_halo, 2) + pow(r3, 2), 2)
-                                        );
-                }
 
-                coulomb = r3/(1.6*3.0);
+                //coulomb = log(r3/(1.6*3.0));
+                coulomb = max(parameters.dyn_L,
+                              pow(log(r3/(parameters.dyn_C*parameters.r_halo)),
+                                  parameters.dyn_alpha));
                 // This assumes that vcirc == sqrt(3)*vdisp and that the dispersion is measured at the scale radius
                 double X;
                 double sigma;
@@ -326,11 +311,11 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
                             parameters.r_halo/(pow(r3, parameters.gamma)*pow(r3 + parameters.r_halo,
                                                                             4-parameters.gamma));
                 }
-                ax += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                ax += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
                             (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);
-                ay += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                ay += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
                             (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);
-                az += -4.0*Pi*G*G*gal.mhalo*density*log(coulomb)*
+                az += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
                             (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);
             }
         }
@@ -434,27 +419,12 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
              * COULOMB LOGARITHM
              * XXXXXXXXXXXXXXXXX
              */
-            if (gal[gal_num].halo_type == 1) {
-                // Coulomb logarithm using Dehnen mass
-                coulomb = r*vr*vr/(G*gal[gal_num].mhalo*
-                           pow(r/(r+gal[gal_num].r_halo), 3.0-gal[gal_num].gamma));
-            } else if (gal[gal_num].halo_type == 2) { // NFW
-                 // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                coulomb = r*vr*vr/
-                        (G * // M(r)
-                            4*Pi*(gal[gal_num].mhalo/(4*Pi)/
-                                  (log(1+gal[gal_num].c_halo)-gal[gal_num].c_halo/(1+gal[gal_num].c_halo))*
-                                  pow(r/gal[gal_num].r_halo, 2)/(2*pow(1+r/gal[gal_num].r_halo, 2))
-                                 )
-                        );
 
-            } else {  // Plummer
-                coulomb = r*vr*vr/(G*gal[gal_num].r_halo*gal[gal_num].mhalo*pow(r, 3)*
-                                   sqrt(1+pow(r/gal[gal_num].r_halo, 2))/
-                                   pow(pow(gal[gal_num].r_halo, 2) + pow(r, 2), 2)
-                                  );
-            }
-            coulomb = r/(1.6*3.0);
+            //coulomb = log(r/(1.6*3.0));
+            coulomb = max(gal[i].dyn_L,
+                          pow(log(r/(gal[i].dyn_C*gal[i].r_halo)),
+                              gal[i].dyn_alpha));
+            
             /*
              * XXXXXXXXXXXXXXXXXXXXXXXXX
              * X and Velocity dispersion
@@ -496,13 +466,13 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                 density = 3*gal[i].mhalo/(4*Pi*pow(gal[i].r_halo, 3)*
                             pow(1+pow(r/gal[i].r_halo, 2), 2.5));
             }
-            ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+            ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
                     (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
 
-            ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+            ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
                     (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);
 
-            az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*log(coulomb)*
+            az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
                     (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
 
             }
@@ -571,7 +541,8 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
     fprintf(snapfile,"X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
     for (n=0; n<ngals; n++){
         getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, parameters);
-        fprintf(snapfile,"%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
+        fprintf(snapfile,"%s,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
+                gal[n].name,
                 gal[n].pos[0],
                 gal[n].pos[1],
                 gal[n].pos[2],
