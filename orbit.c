@@ -87,23 +87,18 @@ int rk4_drv(double *t,
 	int ngals = parameters.ngals;
         char name[50];
         sprintf(name, "temp.dat");
-	//initialize output/insertion of tail particles
+	//initialize timesteps
 	tout = *t;		    /* time of next output/insertion */
 	dt = sign*dt0;                /* initial time step */
-	//integrate cluster
+	//integrate galaxies
 	do {
 		/***********
-		 * CLUSTER *
+		 * GALAXY *
 		 ***********/
-            //advance cluster particle
+            //advance each particle
 	    int count = 0;
             int laststep = 0;
 	    do {
-	        //if (sign*(*t+dt) > sign*tout) {
-		//	dt = tout-*t;
-                //    laststep = 1;
-                //    printf("setting dt: %lf \n", dt);
-			//}
 		difftemp = 0.0;
 	        diff = 0.0;
                 // loop over each galaxy
@@ -129,7 +124,7 @@ int rk4_drv(double *t,
                 // end loop over each galaxy
 		if (!VARIABLE_TIMESTEPS || (diff<=mdiff)) {         /* Is difference below accuracy threshold? */
 		    *t+=dt;
-		    //update the test particles here
+		    //TODO: update the test particles here
                     for (n=0; n<ngals; n++){
 		        for (k=0;k<3;k++) {
 			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];/* If yes -> continue and double step size */
@@ -143,19 +138,19 @@ int rk4_drv(double *t,
 		        // Using input parameters
 		     //   gal[n].mhalo = 1.04737*pow(rt/(rt + 7.3), 2);
 		    }
-		    if (VARIABLE_TIMESTEPS) {
+		    if (VARIABLE_TIMESTEPS) { //If we are with the threshold double the timestep and continue
                         dt = dt*2.0;
                     }
 		} else {
-		    dt = dt/2.0;
+		    dt = dt/2.0;  // if we are outside the threshold halve the timestep and try again
 		}
-
+                // Abort if the timestep ever gets too low
 		if (sign*dt < 0.01*dt0 && !laststep) {
 		    printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
 		    return 1;
 		}
 		count++;
-
+                // round to the end of simulation time
 		if (sign*dt > dtmax) {
 		    dt = sign*dtmax;
 		}
@@ -168,7 +163,6 @@ int rk4_drv(double *t,
                 }
                 if (orbit_stats) {
                     //record orbit stats here (pericenters and apocenters etc.)
-                    // could also do it above but I think that would be add too many operations per timestep
                     dist = sqrt( pow((*(gal+ref_gal)).pos[0]-(*(gal+test_gal)).pos[0], 2) +
                                  pow((*(gal+ref_gal)).pos[1]-(*(gal+test_gal)).pos[1], 2) +
                                  pow((*(gal+ref_gal)).pos[2]-(*(gal+test_gal)).pos[2], 2));
@@ -211,117 +205,54 @@ int rk4_drv(double *t,
 }
 
 
-/* ----------- force ----------- */
-void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal){
-	double r1, r2, r3;
-        double ax = 0.0;
-        double ay = 0.0;
-        double az = 0.0;
+/* ---------- advancement ---------- */
+void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
+	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
+	int k;
 
-    // Potential for MW
-	//Hernquist bulge
-	r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
+    hh = dt*0.5;
+    if (RK4) {
+    	getforce_gals(x, v, acc0, gal_num, gal, parameters);
+    	for (k=0;k<3;k++) {                /* first half-step */
+    	    xt1[k] = *(x+k)+hh**(v+k);
+    	    vt1[k] = *(v+k)+hh**(acc0+k);
+    	}
 
-	ax += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-	        (r1+parameters.b1_LMJ))**x/r1;
-	ay += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-	        (r1+parameters.b1_LMJ))**(x+1)/r1;
-	az += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-	        (r1+parameters.b1_LMJ))**(x+2)/r1;
+    	getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
+    	for (k=0;k<3;k++) {                /* second half-step */
+    	    xt2[k] = *(x+k)+hh*vt1[k];
+    	    vt2[k] = *(v+k)+hh**(acc1+k);
+    	}
 
-        //Miyamato disk
-	r2 = sqrt(pow(*x, 2) +
-	          pow(*(x+1), 2) +
-	          pow(parameters.a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)), 2));
+    	getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
+    	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
+    	    xt3[k] = *(x+k)+dt*vt2[k];
+    	    vt3[k] = *(v+k)+dt**(acc2+k);
+    	}
 
-	ax += -G*parameters.M2_LMJ/(r2*r2*r2) * *x;
-	ay += -G*parameters.M2_LMJ/(r2*r2*r2) * *(x+1);
-	az += -G*parameters.M2_LMJ/(r2*r2*r2) * (parameters.a2_LMJ + sqrt(pow(*(x+2), 2)
-	            + pow(parameters.b2_LMJ, 2)))/
-	        sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)) * *(x+2);
-
-        if (parameters.Mhalo > 0.0){
-
-            r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/parameters.q_halo, 2));
-
-            // NFW
-            if (parameters.halo_type == 1) {
-                double constant = -G*parameters.Mhalo/
-                            (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
-                ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                    1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
-                ay += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                    1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
-                az += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                    1.0/(parameters.r_halo+r3)) * *(x+2)/
-                                    pow(parameters.q_halo*parameters.q_halo*r3, 2);
-
-            } else {
-            //Dehnen Halo
-                ax += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                        pow(parameters.r_halo + r3, 3) * *x;
-                ay += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                        pow(parameters.r_halo + r3, 3) * *(x+1);
-                az += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                        pow(parameters.r_halo + r3, 3) * *(x+2)/pow(parameters.q_halo, 2);
-            }
-            if (DYNAMICALFRICTION_MAIN) {
-                //relative velocity
-                double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2));
-                double coulomb;
-
-                //coulomb = log(r3/(1.6*3.0));
-                coulomb = max(parameters.dyn_L,
-                              pow(log(r3/(parameters.dyn_C*parameters.r_halo)),
-                                  parameters.dyn_alpha));
-                // This assumes that vcirc == sqrt(3)*vdisp and that the dispersion is measured at the scale radius
-                double X;
-                double sigma;
-               // if (NFW) {
-               //     X = 1.0/(sqrt(2.0*log(2.0)-1))*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
-               // } else {
-               //     X = 2*sqrt(parameters.r_halo/(parameters.Mhalo*G))*vr;
-               // }
-                if (parameters.halo_type == 1) {
-                    // Numerical fit where Vmax is at r=2.16258*a
-                    double rvmax = 2.16258;
-                    double VMAX = sqrt(G*parameters.Mhalo/
-                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))
-                                        /(rvmax*parameters.r_halo)*
-                                        (log(1+rvmax)-rvmax/(1+rvmax)));
-                    // fitting formula from Zentner and Bullock 2003, eq. 6)
-                    sigma = 3.0* VMAX *1.4393*pow(r3, 0.354)/(1+1.1756*pow(r3, 0.725));
-                } else {
-                    sigma = 3.0*sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
-                        (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 +
-                            42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
-                            (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) +
-                            log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
-                }
-                X = vr/(sqrt(2)*sigma);
-
-                double density;
-                if (parameters.halo_type == 1) {
-                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                    density = parameters.Mhalo/(4.0*Pi*pow(parameters.r_halo, 3))/
-                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))/
-                                        (r3/parameters.r_halo*pow(1+r3/parameters.r_halo, 2));
-                } else {
-                    density = (3 - parameters.gamma)*parameters.Mhalo/(4*Pi)*
-                            parameters.r_halo/(pow(r3, parameters.gamma)*pow(r3 + parameters.r_halo,
-                                                                            4-parameters.gamma));
-                }
-                ax += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);
-                ay += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);
-                az += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);
-            }
+	getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
+	for (k=0;k<3;k++) {                /* Runge-Kutta formula */
+	    *(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
+	    *(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
+	}
+    }
+    else {  // modified leapfrog
+        // ai
+        getforce_gals(x, v, acc0, gal_num, gal, parameters);
+        // vi+1/2 and xi+1/2
+        for (k=0;k<3;k++) {
+            vt1[k] = *(v+k)+ *(acc0+k)*hh;
+            xt1[k] = *(x+k)+ *(v+k)*hh;
         }
-	*(a+0) = ax;
-	*(a+1) = ay;
-	*(a+2) = az;
+        // ai+1/2
+        getforce_gals(xt1, vt1, acc1, gal_num, gal, parameters);
+        //vi+1 and xi+1
+        for (k=0;k<3;k++) {
+            vt1[k] = *(v+k)+ *(acc1+k)*dt;
+            *(x+k) += 0.5*(*(v+k)+vt1[k])*dt;
+            *(v+k) = vt1[k];
+        }
+    }
 }
 
 
@@ -486,46 +417,110 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 }
 
 
-/* ---------- advancement ---------- */
-void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
-	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
-	int k;
+/* ----------- force ----------- */
+void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal){
+	double r1, r2, r3;
+        double ax = 0.0;
+        double ay = 0.0;
+        double az = 0.0;
 
-    hh = dt*0.5;
-    if (RK4) {
-    	getforce_gals(x, v, acc0, gal_num, gal, parameters);
-    	for (k=0;k<3;k++) {                /* first half-step */
-    		xt1[k] = *(x+k)+hh**(v+k);
-    		vt1[k] = *(v+k)+hh**(acc0+k);
-    	}
+    // Potential for MW
+	//Hernquist bulge
+	r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
 
-    	getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
-    	for (k=0;k<3;k++) {                /* second half-step */
-    		xt2[k] = *(x+k)+hh*vt1[k];
-    		vt2[k] = *(v+k)+hh**(acc1+k);
-    	}
+	ax += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**x/r1;
+	ay += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+1)/r1;
+	az += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
+	        (r1+parameters.b1_LMJ))**(x+2)/r1;
 
-    	getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
-    	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
-    		xt3[k] = *(x+k)+dt*vt2[k];
-    		vt3[k] = *(v+k)+dt**(acc2+k);
-    	}
+        //Miyamato disk
+	r2 = sqrt(pow(*x, 2) +
+	          pow(*(x+1), 2) +
+	          pow(parameters.a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)), 2));
 
-	   getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
-	   for (k=0;k<3;k++) {                /* Runge-Kutta formula */
-	   	*(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
-	   	*(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
-	   }
-    }
-    else {
-        // ai
-        getforce_gals(x, v, acc0, gal_num, gal, parameters);
-        // vi+1/2 and xi+1/2
-        for (k=0;k<3;k++) {
-            vt1[k] = *(v+k)+ *(acc0+k)*hh;
-            xt1[k] = *(x+k)+ *(v+k)*hh;
+	ax += -G*parameters.M2_LMJ/(r2*r2*r2) * *x;
+	ay += -G*parameters.M2_LMJ/(r2*r2*r2) * *(x+1);
+	az += -G*parameters.M2_LMJ/(r2*r2*r2) * (parameters.a2_LMJ + sqrt(pow(*(x+2), 2)
+	            + pow(parameters.b2_LMJ, 2)))/
+	        sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)) * *(x+2);
+
+        if (parameters.Mhalo > 0.0){
+
+            r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/parameters.q_halo, 2));
+
+            // NFW
+            if (parameters.halo_type == 1) {
+                double constant = -G*parameters.Mhalo/
+                            (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
+                ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
+                ay += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
+                az += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
+                                    1.0/(parameters.r_halo+r3)) * *(x+2)/
+                                    pow(parameters.q_halo*parameters.q_halo*r3, 2);
+
+            } else {
+            //Dehnen Halo
+                ax += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *x;
+                ay += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *(x+1);
+                az += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
+                                        pow(parameters.r_halo + r3, 3) * *(x+2)/pow(parameters.q_halo, 2);
+            }
+            if (DYNAMICALFRICTION_MAIN) {
+                //relative velocity
+                double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2));
+                double coulomb;
+                // van den Marel et al. 2012 eq. A1 and discussion in Appendix A
+                coulomb = max(parameters.dyn_L,
+                              pow(log(r3/(parameters.dyn_C*parameters.r_halo)),
+                                  parameters.dyn_alpha));
+                double X;
+                double sigma;
+                if (parameters.halo_type == 2) {
+                    // Numerical fit where Vmax is at r=2.16258*a
+                    double rvmax = 2.16258;
+                    double VMAX = sqrt(G*parameters.Mhalo/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))
+                                        /(rvmax*parameters.r_halo)*
+                                        (log(1+rvmax)-rvmax/(1+rvmax)));
+                    // fitting formula from Zentner and Bullock 2003, eq. 6)
+                    sigma = 3.0* VMAX *1.4393*pow(r3, 0.354)/(1+1.1756*pow(r3, 0.725));
+                } else {
+                    sigma = 3.0*sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
+                        (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 +
+                            42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
+                            (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) +
+                            log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
+                }
+                X = vr/(sqrt(2)*sigma);
+
+                double density;
+                if (parameters.halo_type == 2) {
+                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+                    density = parameters.Mhalo/(4.0*Pi*pow(parameters.r_halo, 3))/
+                                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))/
+                                        (r3/parameters.r_halo*pow(1+r3/parameters.r_halo, 2));
+                } else {
+                    density = (3 - parameters.gamma)*parameters.Mhalo/(4*Pi)*
+                            parameters.r_halo/(pow(r3, parameters.gamma)*pow(r3 + parameters.r_halo,
+                                                                            4-parameters.gamma));
+                }
+                ax += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);
+                ay += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);
+                az += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
+                            (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);
+            }
         }
-    }
+	*(a+0) = ax;
+	*(a+1) = ay;
+	*(a+2) = az;
 }
 
 
@@ -538,7 +533,7 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
     double acc0[3];
     sprintf(snapname, "%ssnapshot.csv.%03d", folder, snapnumber);
     snapfile = fopen(snapname, "w");
-    fprintf(snapfile,"X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
+    fprintf(snapfile,"NAME,X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
     for (n=0; n<ngals; n++){
         getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, parameters);
         fprintf(snapfile,"%s,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
