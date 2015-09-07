@@ -4,7 +4,9 @@ from Cython.Distutils import build_ext
 
 sourcefiles = ['pyorbits.pyx']
 ext_modules = [Extension("pyorbits",
-                         sourcefiles
+                         sources=sourcefiles,
+                         library_dirs = ['/usr/local/lib'],
+                         libraries = ['m', 'gslcblas', 'gsl']
                          )]
 
 setup(

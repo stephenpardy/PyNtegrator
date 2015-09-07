@@ -20,6 +20,7 @@ cdef extern from *:
         double velt[3]
         int ID
         double mhalo
+        double minit
         double r_halo
         double gamma
         double a2_LMJ
@@ -29,9 +30,8 @@ cdef extern from *:
         double b1_LMJ
         double c_halo
         int dyn_fric
-        double dyn_L
-        double dyn_C
-        double dyn_alpha
+        int tidal_trunc
+        double rt
         int halo_type
         char *name
 
@@ -45,9 +45,6 @@ cdef extern from *:
         double Mhalo
         double q_halo
         double r_halo
-        double dyn_L
-        double dyn_C
-        double dyn_alpha
         double gamma
         double c_halo
         double halo_type
@@ -72,6 +69,7 @@ def run(int mode, dict input_parameters):
     for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
         gal[n].name = gal_name
         gal[n].mhalo = galaxy['mass']
+        gal[n].minit = galaxy['mass']
         gal[n].r_halo = galaxy['rad']
         gal[n].gamma = galaxy['gamma']
         gal[n].c_halo = galaxy['c']
@@ -82,10 +80,8 @@ def run(int mode, dict input_parameters):
         gal[n].b1_LMJ = galaxy['b1']
         gal[n].halo_type = galaxy['type']
         gal[n].dyn_fric = galaxy['dynamical_friction']
-        if (gal[n].dyn_fric == 1):
-            gal[n].dyn_C = galaxy['dyn_C']
-            gal[n].dyn_L = galaxy['dyn_L']
-            gal[n].dyn_alpha = galaxy['dyn_alpha']
+        gal[n].tidal_trunc = galaxy['tidal_truncation']
+        gal[n].rt = np.nan
         for i in range(3):
             gal[n].pos[i] = galaxy['pos'][i]
             gal[n].vel[i] = galaxy['vel'][i]
@@ -103,16 +99,13 @@ def run(int mode, dict input_parameters):
     parameters.Mhalo = input_parameters["Mhalo"]
     parameters.q_halo = input_parameters["q_halo"]
     parameters.r_halo = input_parameters["r_halo"]
-    parameters.dyn_L = input_parameters["dyn_L"]
-    parameters.dyn_C = input_parameters["dyn_C"]
-    parameters.dyn_alpha = input_parameters["dyn_alpha"]
     parameters.tpast = input_parameters["tpast"]
     parameters.dtout = input_parameters["dtout"]
     parameters.tfuture = input_parameters["tfuture"]
     parameters.dt0 = input_parameters['dt0']
     parameters.ngals = ngals
 
-    if (parameters.halo_type == 1): # NFW
+    if (parameters.halo_type == 2): # NFW
         parameters.c_halo = input_parameters["c_halo"]
     else: # Dehnen
         parameters.gamma = input_parameters["gamma_halo"]

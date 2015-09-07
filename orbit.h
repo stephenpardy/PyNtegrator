@@ -11,8 +11,8 @@
 //#define G  0.0043009211           //gravitational constant in [km^2/s^2/Msun*pc]
 //#define G 0.0043021135   // From astropy.constants and units 
 #define G 43007.1 // GADGET UNITS!
-#define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
-#define min( a, b ) ( ((a) < (b)) ? (a) : (b) )
+//#define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
+//#define min( a, b ) ( ((a) < (b)) ? (a) : (b) )
 #define SMALL 1.0E-3
 #define SUPERSMALL -1.E50
 
@@ -21,9 +21,10 @@ struct Gal // companion galaxies
     double pos[3];
     double vel[3];
     double post[3]; // temp positions during timestep check
-    double velt[3]; // temp velocities durin timestep check
+    double velt[3]; // temp velocities during timestep check
     int ID;
     double mhalo;
+    double minit;
     double r_halo;
     double gamma;
     double a2_LMJ;
@@ -33,9 +34,8 @@ struct Gal // companion galaxies
     double b1_LMJ;
     double c_halo;
     int dyn_fric;  // is dynamical friction turned on for this galaxy?
-    double dyn_L;
-    double dyn_C;
-    double dyn_alpha;
+    int tidal_trunc; // does the galaxy become tidally truncated?
+    double rt;
     int halo_type;
     char *name;
 };
@@ -57,9 +57,6 @@ struct Params // Galactic and orbital parameters
     double Mhalo; //M200 of MW
     double q_halo;  // flattening of halo
     double r_halo; // scale radius of halo
-    double dyn_L;
-    double dyn_C;
-    double dyn_alpha;
     double gamma; //inner slope of halo
     double c_halo; //NFW concentration
     double halo_type; //NFW = 1, dehnen = 0
@@ -92,29 +89,19 @@ int rk4_drv(double *t,
 void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal);
 void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters);
 void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters);
-double get_gauss(void);
-void convert(double *x,
-             double *v,
-             double *dsun,
-             double *vrsun,
-             double *vr,
-             double *l,
-             double *b,
-             double *lcosb,
-             double *RA,
-             double *DEC,
-             double *mu_alpha,
-             double *mu_alphacosdelta,
-             double *mu_delta,
-             double *mutemp,
-             double *PAtemp,
-             int coordtype_coco,
-             int vcoordtype,
-             int radiococo,
-             double vLSRtemp,
-             double rgalsun);
+
+void dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
+                        double *ax, double *ay, double *az,  // accelerations update in function
+                        int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
+                        double m_gal, double r_gal);  // companion mass and friction 
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);
+
+double tidal_condition (double x, void * params);
+double calc_rt(double r, // distance
+               double rt, // tidal radius
+               struct Gal galG, // galaxy doing the tidal stripping
+               struct Gal galD); // galaxy being stripped
 
 //integration parameters
 //double const dtout = 5.0;          //time step for output [Myr]
@@ -143,10 +130,5 @@ int const orbit_stats = 0;
 int const ref_gal = 2;  // MW, move this to an input parameter later
 int const test_gal = 1;  // should be LMC, same as above, move to input
 
-//potential parameters
-int const gpot = 3;             //type of Galactic potential (1= Allen & Santillan (1991), 2= log-halo (Koposov et al.), 3= NFW (Irrgang et al.))
-//int const NFW = 1;            // Use an NFW profile instead of Dehnen
-
 int const DYNAMICALFRICTION_MAIN = 1;  // Compute dynamical friction from fixed galaxy?
-int const DYNAMICALFRICTION_COMPANION = 1;  // Compute dynamical friction from other galaxies?
 

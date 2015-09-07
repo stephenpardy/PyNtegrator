@@ -1,7 +1,9 @@
 #include "orbit.h"
-#include <Python.h>
-#include <numpy/arrayobject.h>
 
+#include <stdio.h>
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_math.h>
+#include <gsl/gsl_min.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -23,22 +25,30 @@ int orbit(int int_mode,
     tpast = 1.0*ratio*dtout;
 
     //get position of cluster at t = -tpast
-    if (int_mode == 1)
-    {
-        double sign = -1.0;
-        double tmax = tpast;
-        double dtoutt = tpast;
-        double t = tstart;
-        int err;
+    double sign, tmax, dtoutt, t;
+    int err; 
+    if (tpast < 0.0) { 
+        sign = -1.0;
+        tmax = tpast;
+        // If we don't want to integrate forward, then save snapshots as we go back
+        if (tfuture <= 0.0){ 
+            dtoutt = -1.0*dtout;
+        } else {  // otherwise just save a snapshot at the end of the backward integration
+            dtoutt = tpast;
+        }
+        t = tstart;
         err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-
+        printf("%d\n", err);
+    }
+    if (tfuture > 0.0) {
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
         sign = 1.0;
         dtoutt = dtout;
         tmax = tfuture;
         err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d", err);
+        printf("%d\n", err);
     }
+    /*}
     else
     {
         double sign;
@@ -52,7 +62,7 @@ int orbit(int int_mode,
         int err;
         err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
         printf("%d", err);
-    }
+    }*/
 
        //}
     for (n=0; n<ngals; n++){
@@ -80,13 +90,13 @@ int rk4_drv(double *t,
 	double tout, diff, dt = 0.0;
 	double xe1[3], ve1[3], difftemp, dist;
         double old_dist = -1.0;
-       // double rt = 1e+5;
-       // double rt_temp;
+        //double rt = 1e+5;
+        double rt_temp, r;
 	int dir = -1;
-        int k, n;
+        int k, n, m;
 	int ngals = parameters.ngals;
-        char name[50];
-        sprintf(name, "temp.dat");
+        //char name[50];
+        //sprintf(name, "temp.dat");
 	//initialize timesteps
 	tout = *t;		    /* time of next output/insertion */
 	dt = sign*dt0;                /* initial time step */
@@ -123,21 +133,41 @@ int rk4_drv(double *t,
                 }
                 // end loop over each galaxy
 		if (!VARIABLE_TIMESTEPS || (diff<=mdiff)) {         /* Is difference below accuracy threshold? */
-		    *t+=dt;
+		    *t+=dt;/* If yes -> continue and double step size */
 		    //TODO: update the test particles here
                     for (n=0; n<ngals; n++){
 		        for (k=0;k<3;k++) {
-			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];/* If yes -> continue and double step size */
+			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];
 			    (*(gal+n)).vel[k]=(*(gal+n)).velt[k];
 		        }
-		        // Testing tidal stripping using equal mass galaxies with Hernquist Halos
-		      //  rt_temp = sqrt(pow(gal[0].pos[0]-gal[1].pos[0], 2) +
-		      //            pow(gal[0].pos[1]-gal[1].pos[1], 2) +
-		      //            pow(gal[0].pos[2]-gal[1].pos[2], 2))/2;
-		      //  if (rt_temp < rt) {rt = rt_temp;}
-		        // Using input parameters
-		     //   gal[n].mhalo = 1.04737*pow(rt/(rt + 7.3), 2);
 		    }
+                    // Tidal stripping
+                    //if (dt > 0) {
+                    for  (n=0; n<ngals; n++){
+                        if (gal[n].tidal_trunc == 1) {// tidal truncation turned on
+                            for (m=0; m<ngals; m++){ // look for all galaxies with dynamic friction turned on
+                                if ((m != n) && (gal[m].dyn_fric == 1)){ 
+                                    r = sqrt(pow(gal[n].pos[0]-gal[m].pos[0], 2) +
+                                             pow(gal[n].pos[1]-gal[m].pos[1], 2) +
+                                             pow(gal[n].pos[2]-gal[m].pos[2], 2));
+                                    rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
+                                    if (sign > 0){  // integrating forward
+                                        gal[n].rt = fmin(gal[n].rt, rt_temp);
+                                    } else if (sign < 0){  // integrating backward
+                                        gal[n].rt = fmax(gal[n].rt, rt_temp);
+                                    }
+                                    if (gal[n].halo_type == 1){ // Dehnen
+                                        gal[n].mhalo = gal[n].minit*pow(gal[n].rt/(gal[n].rt+gal[n].r_halo), 3-gal[n].gamma); // Dehnen
+                                    } else if (gal[n].halo_type == 2){ // NFW
+                                        gal[n].mhalo = gal[n].minit*(log(1+(gal[n].rt)/gal[n].r_halo)-gal[n].rt/(gal[n].r_halo+gal[n].rt))/(log(1+gal[n].c_halo) -gal[n].c_halo/(1+gal[n].c_halo));
+                                    } else { // Plummer
+                                        gal[n].mhalo = gal[n].minit*pow(gal[n].rt, 3)/pow(pow(gal[n].r_halo, 2) + pow(gal[n].rt, 2), 1.5);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    //}
 		    if (VARIABLE_TIMESTEPS) { //If we are with the threshold double the timestep and continue
                         dt = dt*2.0;
                     }
@@ -157,6 +187,11 @@ int rk4_drv(double *t,
 
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
 	    if (sign**t>=sign*(tout)) {
+                for (n=0; n<ngals; n++) {
+                    if (gal[n].tidal_trunc == 1) {
+                        printf("rt: %10.5f, m: %10.5f, t: %10.5f\n", gal[n].rt, gal[n].mhalo, *t);
+                    }
+                }
                 if (snapshot){
                     write_snapshot(parameters, gal, *t, snapnum);
                     snapnum += 1;
@@ -268,10 +303,6 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
     double vz = 0.0;
     double vr = 0.0;
     double constant;
-    double coulomb = 0.0;
-    double X = 0.0;
-    double density = 0.0;
-    double sigma = 0.0;
 
     int ngals = parameters.ngals;
     // get the force from all other galaxies
@@ -288,7 +319,9 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 	        (r+gal[i].b1_LMJ))*(*(x+1) - gal[i].pos[1])/r;
 	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
 	        (r+gal[i].b1_LMJ))*(*(x+2) - gal[i].pos[2])/r;
-
+          //  if (r == r) {
+          //      printf("Bulge %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
+          //  }
             //Miyamato disk
 	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
 	             pow(*(x+1) - gal[i].pos[1], 2) +
@@ -303,7 +336,9 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 	                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
 	                                                    + pow(gal[i].b2_LMJ, 2))
 	                                             * (*(x+2) - gal[i].pos[2]);
-
+          //  if (r == r) {
+          //      printf("disk %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
+          //  }
             // Dark Matter Halo
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                pow(*(x+1) - gal[i].pos[1], 2) +
@@ -334,76 +369,26 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                 az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
                     pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
             }
-
+          //  if (r == r) {
+            //    printf("Halo %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
+           // }
             // dynamical friction
-            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy
+            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy?
                 //relative velocity
                 vx = (*v - gal[i].vel[0]);
                 vy = (*(v+1) - gal[i].vel[1]);
                 vz = (*(v+2) - gal[i].vel[2]);
                 vr = sqrt(vx*vx + vy*vy + vz*vz);
-                /*
-                * XXXXXXXXXXXXXXXXX
-                * COULOMB LOGARITHM
-                * XXXXXXXXXXXXXXXXX
-                */
 
-                coulomb = max(gal[i].dyn_L,
-                          pow(log(r/(gal[i].dyn_C*gal[i].r_halo)),
-                              gal[i].dyn_alpha));
+                dynamical_friction(r, vx, vy, vz, vr,
+                                   &ax, &ay, &az,
+                                   gal[i].halo_type, gal[i].mhalo,
+                                   gal[i].r_halo, gal[i].gamma, gal[i].c_halo,
+                                   gal[gal_num].mhalo, gal[gal_num].r_halo);
             
-                /*
-                * XXXXXXXXXXXXXXXXXXXXXXXXX
-                * X and Velocity dispersion
-                * XXXXXXXXXXXXXXXXXXXXXXXXX
-                */
-                if (gal[i].halo_type == 1){
-                // Hernquist 1D velocity dispersion - CForm from Mathematica -- only good for gamma == 1
-                    sigma = 3.0*sqrt(G*gal[i].mhalo*r*pow(gal[i].r_halo + r, 3)*
-                        (-(25.0*pow(gal[i].r_halo, 3) + 52.0*pow(gal[i].r_halo, 2)*r +
-                            42.0*gal[i].r_halo*pow(r, 2) + 12.0*pow(r, 3))/
-                            (12.0*pow(gal[i].r_halo, 4)*pow(gal[i].r_halo + r, 4)) +
-                            log((gal[i].r_halo + r)/r)/pow(gal[i].r_halo, 5)));
-                } else if (gal[i].halo_type == 2) {  //NFW
-                    // Numerical fit where max is at r=2.16258*a
-                    double rvmax = 2.16258;
-                    double VMAX = sqrt(G*gal[i].mhalo/
-                                    (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))
-                                    /(rvmax*gal[i].r_halo)*
-                                    (log(1+rvmax)-rvmax/(1+rvmax)));
-                    // fitting formula from Zentner and Bullock 2003, eq. 6)
-                    sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
-                } else { //Plummer
-                    sigma = 3.0*sqrt(pow(gal[i].r_halo, 5)*G*gal[i].mhalo*
-                                pow(1+pow(r/gal[i].r_halo, 2), 2.5)/
-                                (6.0*pow(pow(gal[i].r_halo, 2)+pow(r, 2), 3)));
-                }
-
-                X = vr/(sqrt(2.0)*sigma);
-                if (gal[i].halo_type == 1) { //Hernquist
-                    density = (3.0 - gal[i].gamma)*gal[i].mhalo/(4.0*Pi)*
-                          gal[i].r_halo/(pow(r, gal[i].gamma)*pow(r + gal[i].r_halo, 4-gal[i].gamma));
-                } else if (gal[i].halo_type == 2) { //NFW
-                    // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                    density = gal[i].mhalo/(4.0*Pi*pow(gal[i].r_halo, 3))/
-                                    (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo))/
-                                    (r/gal[i].r_halo*pow(1+r/gal[i].r_halo, 2));
-                } else { //Plummer
-                    density = 3*gal[i].mhalo/(4*Pi*pow(gal[i].r_halo, 3)*
-                            pow(1+pow(r/gal[i].r_halo, 2), 2.5));
-                }
-                ax += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
-                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
-
-                ay += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
-                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);
-
-                az += -4.0*Pi*G*G*gal[gal_num].mhalo*density*coulomb*
-                    (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
-
-                }
-
+                   
             }
+        }
     }
     // update acceleration
     *(a+0) += ax;
@@ -447,7 +432,7 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
 
         r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/parameters.q_halo, 2));
 
-        if (parameters.halo_type == 1) {  //NFW
+        if (parameters.halo_type == 2) {  //NFW
             double constant = -G*parameters.Mhalo/
                         (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
             ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
@@ -469,48 +454,13 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
         if (DYNAMICALFRICTION_MAIN) {
             //relative velocity
             double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2));
-            double coulomb;
-            // van den Marel et al. 2012 eq. A1 and discussion in Appendix A
-            coulomb = max(parameters.dyn_L,
-                          pow(log(r3/(parameters.dyn_C*parameters.r_halo)),
-                              parameters.dyn_alpha));
-            double X;
-            double sigma;
-            if (parameters.halo_type == 2) {
-                // Numerical fit where Vmax is at r=2.16258*a
-                double rvmax = 2.16258;
-                double VMAX = sqrt(G*parameters.Mhalo/
-                                    (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))
-                                    /(rvmax*parameters.r_halo)*
-                                    (log(1+rvmax)-rvmax/(1+rvmax)));
-                // fitting formula from Zentner and Bullock 2003, eq. 6)
-                sigma = 3.0* VMAX *1.4393*pow(r3, 0.354)/(1+1.1756*pow(r3, 0.725));
-            } else {
-                sigma = 3.0*sqrt(G*parameters.Mhalo*r3*pow(parameters.r_halo + r3, 3)*
-                    (-(25.0*pow(parameters.r_halo, 3) + 52.0*pow(parameters.r_halo, 2)*r3 +
-                        42.0*parameters.r_halo*pow(r3, 2) + 12.0*pow(r3, 3))/
-                        (12.0*pow(parameters.r_halo, 4)*pow(parameters.r_halo + r3, 4)) +
-                        log((parameters.r_halo + r3)/r3)/pow(parameters.r_halo, 5)));
-            }
-            X = vr/(sqrt(2)*sigma);
+            dynamical_friction(r3, *v, *(v+1), *(v+2), vr,
+                               &ax, &ay, &az,
+                               parameters.halo_type, parameters.Mhalo,
+                               parameters.r_halo, parameters.gamma, parameters.c_halo,
+                               gal.mhalo, gal.r_halo);
 
-            double density;
-            if (parameters.halo_type == 2) {
-                // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-                density = parameters.Mhalo/(4.0*Pi*pow(parameters.r_halo, 3))/
-                                    (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo))/
-                                    (r3/parameters.r_halo*pow(1+r3/parameters.r_halo, 2));
-            } else {
-                density = (3 - parameters.gamma)*parameters.Mhalo/(4*Pi)*
-                        parameters.r_halo/(pow(r3, parameters.gamma)*pow(r3 + parameters.r_halo,
-                                                                        4-parameters.gamma));
-            }
-            ax += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *v/pow(vr, 3);
-            ay += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+1)/pow(vr, 3);
-            az += -4.0*Pi*G*G*gal.mhalo*density*coulomb*
-                        (erf(X) - 2*X/sqrt(Pi)*exp(-X*X))* *(v+2)/pow(vr, 3);
+
         }
     }
     *(a+0) = ax;
@@ -545,4 +495,163 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
                 t);
     }
     fclose(snapfile);
+}
+
+
+// Calculate Dynamical Friction acceleration
+void dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
+                        double *ax, double *ay, double *az,  // accelerations update in function
+                        int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
+                        double m_gal, double r_gal){  // companion mass and scale length
+    double sigma = 0.0;
+    double density = 0.0;
+    double dyn_L, dyn_C, dyn_alpha;
+    /*
+    * XXXXXXXXXXXXXXXXX
+    * COULOMB LOGARITHM
+    * XXXXXXXXXXXXXXXXX
+    */
+    double coulomb;
+    // alternative methods of coulomb logarithm
+    if (mhalo/m_gal < 0.2){
+        coulomb = 0.0;  // don't have a small galaxy act on a big one
+    } else {
+        // van den Marel et al. 2012 eq. A1 and discussion in Appendix A
+        if (abs(mhalo/m_gal - 1.0) < 0.3){ // within 30% of each other
+            //dyn_L = 0.02;
+            dyn_L = 0.0;
+            dyn_C = 1.0;
+            //dyn_C = 0.17;
+           // dyn_alpha = 0.15;
+            dyn_alpha = 2.5;
+        } else {
+            //Test against gadget
+            //dyn_L = 0.0;
+            //dyn_C = 0.1;
+            //dyn_alpha = 3.5;
+            //van der Marel 2012
+            //dyn_C =  1.22;
+            //dyn_alpha = 1.0;
+            //K+13 below
+            dyn_L = 0.0;
+            dyn_C = 1.6*3.0/r_gal;  // based off K+13 etc.
+            dyn_alpha = 1.0;
+        }
+        coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
+                                    dyn_alpha));
+    }
+    /*
+    * XXXXXXXXXXXXXXXXXXXXXXXXX
+    * X and Velocity dispersion
+    * XXXXXXXXXXXXXXXXXXXXXXXXX
+    */
+    if (halo_type == 1){
+    // Hernquist 1D velocity dispersion - CForm from Mathematica -- only good for gamma == 1
+        sigma = 3.0*sqrt(G*mhalo*r*pow(r_halo + r, 3)*
+            (-(25.0*pow(r_halo, 3) + 52.0*pow(r_halo, 2)*r +
+                42.0*r_halo*pow(r, 2) + 12.0*pow(r, 3))/
+                (12.0*pow(r_halo, 4)*pow(r_halo + r, 4)) +
+                log((r_halo + r)/r)/pow(r_halo, 5)));
+    } else if (halo_type == 2) {  //NFW
+        // Numerical fit where max is at r=2.16258*a
+        double rvmax = 2.16258;
+        double VMAX = sqrt(G*mhalo/
+                        (log(1+c_halo)-c_halo/(1+c_halo))
+                        /(rvmax*r_halo)*
+                        (log(1+rvmax)-rvmax/(1+rvmax)));
+        // fitting formula from Zentner and Bullock 2003, eq. 6)
+        sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
+    } else { //Plummer
+        sigma = 3.0*sqrt(pow(r_halo, 5)*G*mhalo*
+                    pow(1+pow(r/r_halo, 2), 2.5)/
+                    (6.0*pow(pow(r_halo, 2)+pow(r, 2), 3)));
+    }
+
+    double X = vr/(sqrt(2.0)*sigma);
+    if (halo_type == 1) { //Hernquist
+        density = (3.0 - gamma)*mhalo/(4.0*Pi)*
+              r_halo/(pow(r, gamma)*pow(r + r_halo, 4-gamma));
+    } else if (halo_type == 2) { //NFW
+        // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
+        density = mhalo/(4.0*Pi*pow(r_halo, 3))/
+                        (log(1+c_halo)-c_halo/(1+c_halo))/
+                        (r/r_halo*pow(1+r/r_halo, 2));
+    } else { //Plummer
+        density = 3*mhalo/(4*Pi*pow(r_halo, 3)*
+                pow(1+pow(r/r_halo, 2), 2.5));
+    }
+    *ax += -4.0*Pi*G*G*m_gal*density*coulomb*
+        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
+
+    *ay += -4.0*Pi*G*G*m_gal*density*coulomb*
+        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vy/pow(vr, 3);
+
+    *az += -4.0*Pi*G*G*m_gal*density*coulomb*
+        (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
+
+}
+
+double tidal_condition (double x, void * params)
+{
+    double *p = (double *)params;
+    double MD, MG;
+  // p[0] = MD, p[1] = MG, p[2] = aD, p[3] = aG, p[4] = r, p[5] = gammaD, p[6] = gammaG, p[7] = dwarf_type, p[8] = gal_type, p[9] = dwarf_c, p[10] = gal_c
+    if (p[7] == 1) { // Dehnen
+        MD = p[0]*pow(x/(x+p[2]), 3-p[5]);
+    } else if (p[7] == 2){ // NFW
+        MD = p[0]*(log(1+(x)/p[2])-(x)/(p[2]+x))/(log(1+p[9]) -p[9]/(1+p[9]));
+    } else {// Plummer
+        MD = p[0]*pow(x, 3)/pow(p[2]*p[2] + x*x, 1.5);
+    }
+    if (p[8] == 1){ // Dehnen
+        MG = p[1]*pow((p[4]-x)/(p[4]-x+p[3]), 3-p[6]);
+    } else if (p[8] == 2){ // NFW
+        MG = p[1]*(log(1+(p[4]-x)/p[3])-(p[4]-x)/(p[3]+p[4]-x))/(log(1+p[10]) -p[10]/(1+p[10]));
+    }
+    else {  //Plummer
+        MG = p[1]*pow(p[4]-x, 3)/pow(p[3]*p[3] + pow(p[4]-x, 2), 1.5);
+    }
+
+    return fabs(MG/pow(p[4]-x, 3)-
+                MD/pow(x, 3));
+}
+
+double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
+{
+  int status;
+  int iter = 0, max_iter = 100;
+  const gsl_min_fminimizer_type *T;
+  gsl_min_fminimizer *s;
+  double m = rt;
+  double a = 1e-1, b = r-1e-1;
+  gsl_function F;
+
+  double p[11] = {galD.minit, galG.mhalo, galD.r_halo, galG.r_halo, r,
+                  galD.gamma, galG.gamma, galD.halo_type, galG.halo_type,
+                  galD.c_halo, galG.c_halo};
+  F.function = &tidal_condition;
+  F.params = (void *)p;
+
+  T = gsl_min_fminimizer_brent;
+  s = gsl_min_fminimizer_alloc (T);
+  gsl_min_fminimizer_set (s, &F, m, a, b);
+
+  do
+    {
+      iter++;
+      status = gsl_min_fminimizer_iterate (s);
+
+      m = gsl_min_fminimizer_x_minimum (s);
+      a = gsl_min_fminimizer_x_lower (s);
+      b = gsl_min_fminimizer_x_upper (s);
+
+      status 
+        = gsl_min_test_interval (a, b, 0.001, 0.001);
+
+    }
+  while (status == GSL_CONTINUE && iter < max_iter);
+
+  gsl_min_fminimizer_free (s);
+
+  return m;
 }
