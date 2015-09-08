@@ -34,6 +34,12 @@ struct Gal // companion galaxies
     double b1_LMJ;
     double c_halo;
     int dyn_fric;  // is dynamical friction turned on for this galaxy?
+    double dyn_C_eq;  // Equal mass terms
+    double dyn_L_eq;
+    double dyn_alpha_eq;
+    double dyn_C_uneq;  // Unequal mass terms
+    double dyn_L_uneq;
+    double dyn_alpha_uneq;
     int tidal_trunc; // does the galaxy become tidally truncated?
     double rt;
     int halo_type;
@@ -60,6 +66,12 @@ struct Params // Galactic and orbital parameters
     double gamma; //inner slope of halo
     double c_halo; //NFW concentration
     double halo_type; //NFW = 1, dehnen = 0
+    double dyn_C_eq;
+    double dyn_L_eq;
+    double dyn_alpha_eq;
+    double dyn_C_uneq;
+    double dyn_L_uneq;
+    double dyn_alpha_uneq;
     double tpast;
     double tfuture;
     double dt0;  //snapshot freq
@@ -93,6 +105,8 @@ void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, stru
 void dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                         double *ax, double *ay, double *az,  // accelerations update in function
                         int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
+                        double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
+                        double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
                         double m_gal, double r_gal);  // companion mass and friction 
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);

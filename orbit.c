@@ -384,6 +384,8 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                                    &ax, &ay, &az,
                                    gal[i].halo_type, gal[i].mhalo,
                                    gal[i].r_halo, gal[i].gamma, gal[i].c_halo,
+                                   gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
+                                   gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
                                    gal[gal_num].mhalo, gal[gal_num].r_halo);
             
                    
@@ -458,6 +460,8 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
                                &ax, &ay, &az,
                                parameters.halo_type, parameters.Mhalo,
                                parameters.r_halo, parameters.gamma, parameters.c_halo,
+                               parameters.dyn_L_eq, parameters.dyn_C_eq, parameters.dyn_alpha_eq,
+                               parameters.dyn_L_uneq, parameters.dyn_C_uneq, parameters.dyn_alpha_uneq,
                                gal.mhalo, gal.r_halo);
 
 
@@ -502,6 +506,8 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
 void dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                         double *ax, double *ay, double *az,  // accelerations update in function
                         int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
+                        double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
+                        double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
                         double m_gal, double r_gal){  // companion mass and scale length
     double sigma = 0.0;
     double density = 0.0;
@@ -518,13 +524,19 @@ void dynamical_friction(double r, double vx, double vy, double vz, double vr,  /
     } else {
         // van den Marel et al. 2012 eq. A1 and discussion in Appendix A
         if (abs(mhalo/m_gal - 1.0) < 0.3){ // within 30% of each other
+            dyn_L = dyn_L_eq;
+            dyn_C = dyn_C_eq;
+            dyn_alpha = dyn_alpha_eq;
             //dyn_L = 0.02;
-            dyn_L = 0.0;
-            dyn_C = 1.0;
+            //dyn_L = 0.0;
+            //dyn_C = 1.0;
             //dyn_C = 0.17;
            // dyn_alpha = 0.15;
-            dyn_alpha = 2.5;
+            //dyn_alpha = 2.5;
         } else {
+            dyn_L = dyn_L_uneq;
+            dyn_C = dyn_C_uneq;
+            dyn_alpha = dyn_alpha_uneq;
             //Test against gadget
             //dyn_L = 0.0;
             //dyn_C = 0.1;
@@ -533,9 +545,9 @@ void dynamical_friction(double r, double vx, double vy, double vz, double vr,  /
             //dyn_C =  1.22;
             //dyn_alpha = 1.0;
             //K+13 below
-            dyn_L = 0.0;
-            dyn_C = 1.6*3.0/r_gal;  // based off K+13 etc.
-            dyn_alpha = 1.0;
+            //dyn_L = 0.0;
+           // dyn_C = 1.6*3.0/r_gal;  // based off K+13 etc.
+           // dyn_alpha = 1.0;
         }
         coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
                                     dyn_alpha));

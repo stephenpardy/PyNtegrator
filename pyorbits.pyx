@@ -30,6 +30,12 @@ cdef extern from *:
         double b1_LMJ
         double c_halo
         int dyn_fric
+        double dyn_C_eq
+        double dyn_L_eq
+        double dyn_alpha_eq
+        double dyn_C_uneq
+        double dyn_L_uneq
+        double dyn_alpha_uneq
         int tidal_trunc
         double rt
         int halo_type
@@ -48,6 +54,12 @@ cdef extern from *:
         double gamma
         double c_halo
         double halo_type
+        double dyn_C_eq
+        double dyn_L_eq
+        double dyn_alpha_eq
+        double dyn_C_uneq
+        double dyn_L_uneq
+        double dyn_alpha_uneq
         double tpast
         double tfuture
         double dt0
@@ -80,6 +92,14 @@ def run(int mode, dict input_parameters):
         gal[n].b1_LMJ = galaxy['b1']
         gal[n].halo_type = galaxy['type']
         gal[n].dyn_fric = galaxy['dynamical_friction']
+        if galaxy['dynamical_friction'] == 1:
+            gal[n].dyn_C_eq = galaxy['dyn_C_eq']
+            gal[n].dyn_L_eq = galaxy['dyn_L_eq']
+            gal[n].dyn_alpha_eq = galaxy['dyn_alpha_eq']
+            gal[n].dyn_C_uneq = galaxy['dyn_C_uneq']
+            gal[n].dyn_L_uneq = galaxy['dyn_L_uneq']
+            gal[n].dyn_alpha_uneq = galaxy['dyn_alpha_uneq']
+
         gal[n].tidal_trunc = galaxy['tidal_truncation']
         gal[n].rt = np.nan
         for i in range(3):
@@ -103,6 +123,12 @@ def run(int mode, dict input_parameters):
     parameters.dtout = input_parameters["dtout"]
     parameters.tfuture = input_parameters["tfuture"]
     parameters.dt0 = input_parameters['dt0']
+    parameters.dyn_L_eq = input_parameters['dyn_L_eq']
+    parameters.dyn_C_eq = input_parameters['dyn_C_eq']
+    parameters.dyn_alpha_eq = input_parameters['dyn_alpha_eq']
+    parameters.dyn_L_uneq = input_parameters['dyn_L_uneq']
+    parameters.dyn_C_uneq = input_parameters['dyn_C_uneq']
+    parameters.dyn_alpha_uneq = input_parameters['dyn_alpha_uneq']
     parameters.ngals = ngals
 
     if (parameters.halo_type == 2): # NFW
@@ -160,7 +186,7 @@ def likelihood(int ngals,
 
 def test_orbit(dict input_parameters):
     cdef dict results = run(1, input_parameters)
-    cdef int ngals = input_parameters['rad_gal'].shape[0]
+    cdef int ngals = len(input_parameters['galaxies'])
     cdef double ln_likelihood
     if results is not None:
         ln_likelihood = likelihood(ngals,
