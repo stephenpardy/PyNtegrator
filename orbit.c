@@ -113,6 +113,9 @@ int rk4_drv(double *t,
 	        diff = 0.0;
                 // loop over each galaxy
                 for (n=0; n<ngals; n++){
+                    // If galaxy is fixed in place then do not advance it
+                    if ((*(gal+n)).inplace == 1) continue;
+                    // Otherwise take a step using a fixed or variable time step
 		    for (k=0;k<3;k++) {
                         (*(gal+n)).post[k] = (*(gal+n)).pos[k];
                         (*(gal+n)).velt[k] = (*(gal+n)).vel[k];
@@ -292,7 +295,9 @@ void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, stru
 
 
 void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
-    getforce(x, v, a, parameters, gal[gal_num]);
+    //printf("%10.5f, %10.5f, %10.5f ", *(a+0), *(a+1), *(a+2));    
+    //getforce(x, v, a, parameters, gal[gal_num]);
+    
     int i;
     double r;
     double ax = 0.0;
@@ -393,9 +398,9 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
         }
     }
     // update acceleration
-    *(a+0) += ax;
-    *(a+1) += ay;
-    *(a+2) += az;
+    *(a+0) = ax;
+    *(a+1) = ay;
+    *(a+2) = az;
 
 }
 
@@ -467,6 +472,7 @@ void getforce(double *x, double *v, double *a, struct Params parameters, struct 
 
         }
     }
+    //printf("%10.5f, %10.5f, %10.5f\n", ax, ay, az);
     *(a+0) = ax;
     *(a+1) = ay;
     *(a+2) = az;

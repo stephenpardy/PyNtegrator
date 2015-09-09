@@ -43,6 +43,7 @@ struct Gal // companion galaxies
     int tidal_trunc; // does the galaxy become tidally truncated?
     double rt;
     int halo_type;
+    int inplace;
     char *name;
 };
 

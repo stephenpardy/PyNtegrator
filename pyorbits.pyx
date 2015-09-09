@@ -39,6 +39,7 @@ cdef extern from *:
         int tidal_trunc
         double rt
         int halo_type
+        int inplace
         char *name
 
 
@@ -92,6 +93,7 @@ def run(int mode, dict input_parameters):
         gal[n].b1_LMJ = galaxy['b1']
         gal[n].halo_type = galaxy['type']
         gal[n].dyn_fric = galaxy['dynamical_friction']
+        gal[n].inplace = galaxy['inplace']
         if galaxy['dynamical_friction'] == 1:
             gal[n].dyn_C_eq = galaxy['dyn_C_eq']
             gal[n].dyn_L_eq = galaxy['dyn_L_eq']
