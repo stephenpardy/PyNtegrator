@@ -1,31 +1,15 @@
-MCOrbits
+PyNtegrator
 ========
 
-Orbital integration and likelihood testing for MCMC parameter searches of tidal fields.
+General purpose galaxy orbit integration. Can evolve multiple galaxies using several halo models and an approximation of dynamical friction. 
 
-Python code acts as a wrapper for integration in C and for the emcee package which searches parameter space.
+Coming soon:
+    Examples, tutorials, and initial conditions.
 
-Naive setup and running:
-
-python setup.py build_ext --inplace
-
-For a single temperature:
-python mcorbit_serial.py <OUTPUTFILE> <ICFILE> <DATAFILESTUB>
-
-For multiple temperatures:
-python mcorbit_parallel.py <OUTPUTFILE> <ICFILE> <DATAFILESTUB>
-
-See ICS_Example for example of initial conditions file structure
-
-The data files should be named:
-    <DATAFILESTUB>_OD (for overdensity map)
-    <DATAFILESTUB>_VR (for radial velocity and proper motion data)
-
-TODO:
-    Add example data (from Pal 5?)
+Fork from the McOrbits project, originally written by Ana Bonca and Andreas Kuepper. 
 
 /***************************************************************************
- *   Copyright (C) 2013, 2014 by Stephen Pardy, Ana Bonaca                 * 
+ *   Copyright (C) 2013, 2014, 2015 by Stephen Pardy, Ana Bonaca           * 
  *                               &  Andreas Kuepper                        *
  *   contact: spardy@astro.wisc.edu                                        *
  *                                                                         *
