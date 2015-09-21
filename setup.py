@@ -1,9 +1,18 @@
-from distutils.core import setup, Extension
-import numpy.distutils.misc_util
+from distutils.core import setup
+from distutils.extension import Extension
+from Cython.Distutils import build_ext
+from Cython.Build import cythonize
 
-c_ext = Extension("_orbit", ["_orbit.c", "orbit.c"])
+sourcefiles = ['pyorbits.pyx']
+ext_modules = [Extension("pyorbits",
+                         sources=sourcefiles,
+                         library_dirs = ['/usr/local/lib'],
+                         libraries = ['m', 'gslcblas', 'gsl']
+                         )]
 
 setup(
-    ext_modules=[c_ext],
-    include_dirs=numpy.distutils.misc_util.get_numpy_include_dirs(),
+    name = 'Converter',
+    cmdclass = {'build_ext': build_ext},
+    ext_modules = cythonize(ext_modules)
 )
+

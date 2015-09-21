@@ -1,5 +1,4 @@
 #include "orbit.h"
-
 #include <stdio.h>
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
@@ -8,15 +7,25 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-int orbit(int int_mode,
-          int ngals,
+
+//currently does nothing
+void custom_gsl_error_handler(const char * reason,
+                              const char * file,
+                              int line,
+                              int gsl_errno){
+    (void)reason;
+    (void)file;
+    (void)line;
+}
+
+
+int orbit(int ngals,
           struct Params parameters,
           struct Gal *gal,
-          double* output_pos,
-          double* output_vel){
+          struct Snapshot **output_snapshots){
 
 
-    int ratio, n, i;
+    int ratio;
     double tpast = parameters.tpast;  // add to orbit.h
     double tfuture = parameters.tfuture; // add to orbit.h
     double dt0 = parameters.dt0; // add to orbit.h
@@ -26,7 +35,7 @@ int orbit(int int_mode,
 
     //get position of cluster at t = -tpast
     double sign, tmax, dtoutt, t;
-    int err; 
+    int err = 0;
     if (tpast < 0.0) { 
         sign = -1.0;
         tmax = tpast;
@@ -36,43 +45,20 @@ int orbit(int int_mode,
         } else {  // otherwise just save a snapshot at the end of the backward integration
             dtoutt = tpast;
         }
+
         t = tstart;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d\n", err);
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign, output_snapshots);
     }
     if (tfuture > 0.0) {
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
         sign = 1.0;
         dtoutt = dtout;
         tmax = tfuture;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d\n", err);
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign, output_snapshots);
     }
-    /*}
-    else
-    {
-        double sign;
-        if (tpast < 0.0)
-            sign = -1.0;
-        else
-            sign = 1.0;
-        double tmax = tpast;
-        double dtoutt = dtout;
-        double t = tstart;
-        int err;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign);
-        printf("%d", err);
-    }*/
 
-       //}
-    for (n=0; n<ngals; n++){
-        for (i=0; i<3; i++){
-            output_pos[i+n*3] = gal[n].pos[i];
-            output_vel[i+n*3] = gal[n].vel[i];
-        }
-    }
     free(gal);
-    return 0;
+    return err;
 }
 
 
@@ -84,16 +70,16 @@ int rk4_drv(double *t,
             double mdiff,
             struct Gal *gal,
             struct Params parameters,
-            double sign){
+            double sign,
+            struct Snapshot **output_snapshots){
         struct OrbitStats stats;
         int snapnum = 0;
 	double tout, diff, dt = 0.0;
-	double xe1[3], ve1[3], difftemp, dist;
-        double old_dist = -1.0;
+	double xe1[3], ve1[3], difftemp;
         //double rt = 1e+5;
         double rt_temp, r;
-	int dir = -1;
         int k, n, m;
+        int err = 0;
 	int ngals = parameters.ngals;
         //char name[50];
         //sprintf(name, "temp.dat");
@@ -123,15 +109,19 @@ int rk4_drv(double *t,
 			ve1[k]=(*(gal+n)).vel[k];
 		    }
                     if (VARIABLE_TIMESTEPS) {
-		        do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
-		        do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);  /* Two half steps */
-		        do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);
+		        err = do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
+		        err = do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);  /* Two half steps */
+		        err = do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);
 		        difftemp = sqrt(pow(xe1[0] - (*(gal+n)).post[0],2) +
 		                        pow(xe1[1] - (*(gal+n)).post[1],2) +
 		                        pow(xe1[2] - (*(gal+n)).post[2],2));
                         if (difftemp > diff) {diff = difftemp;} // hold highest value to compare with mdiff below
                     } else {
-		        do_step(dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);      /* One full step */
+		        err = do_step(dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);      /* One full step */
+                    }
+                    // error somewhere in integration
+                    if (err) {
+                        return 1;
                     }
                 }
                 // end loop over each galaxy
@@ -154,6 +144,9 @@ int rk4_drv(double *t,
                                              pow(gal[n].pos[1]-gal[m].pos[1], 2) +
                                              pow(gal[n].pos[2]-gal[m].pos[2], 2));
                                     rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
+                                    if (rt_temp < 0.0){ // error has occrued
+                                        return 1;
+                                    }
                                     if (sign > 0){  // integrating forward
                                         gal[n].rt = fmin(gal[n].rt, rt_temp);
                                     } else if (sign < 0){  // integrating backward
@@ -190,85 +183,58 @@ int rk4_drv(double *t,
 
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
 	    if (sign**t>=sign*(tout)) {
-                for (n=0; n<ngals; n++) {
-                    if (gal[n].tidal_trunc == 1) {
-                        printf("rt: %10.5f, m: %10.5f, t: %10.5f\n", gal[n].rt, gal[n].mhalo, *t);
-                    }
-                }
-                if (snapshot){
+               // for (n=0; n<ngals; n++) {
+               //     if (gal[n].tidal_trunc == 1) {
+               //         printf("rt: %10.5f, m: %10.5f, t: %10.5f\n", gal[n].rt, gal[n].mhalo, *t);
+               //     }
+               // }
+
+                // First record the snapshot variable
+                record_snapshot(parameters, gal, *t, snapnum, output_snapshots);
+                // Then write out to disk if requested
+                if (SNAPSHOT){
                     write_snapshot(parameters, gal, *t, snapnum);
-                    snapnum += 1;
                 }
-                if (orbit_stats) {
-                    //record orbit stats here (pericenters and apocenters etc.)
-                    dist = sqrt( pow((*(gal+ref_gal)).pos[0]-(*(gal+test_gal)).pos[0], 2) +
-                                 pow((*(gal+ref_gal)).pos[1]-(*(gal+test_gal)).pos[1], 2) +
-                                 pow((*(gal+ref_gal)).pos[2]-(*(gal+test_gal)).pos[2], 2));
-                    if (old_dist >= 0){
-                        if (dir >= 0){
-                        // already have a direction set
-                            if ((dir = 1) && (dist >= old_dist)) {
-                            // moving in and got further away
-                                dir = 0;
-                                stats.dir = dir;
-                                stats.pericenters += 1;
-                            } else if ((dir = 0) && (dist <= old_dist)) {
-                            // moving out and got closer
-                                dir = 1;
-                                stats.apocenters += 1;
-                                stats.dir = dir;
-                            }
-                        } else {
-                        // set direction
-                            if (dist < old_dist) {
-                                dir = 1;  // inward
-                                stats.dir = dir;
-                            } else {
-                                dir = 0;  // outward
-                                stats.dir = dir;
-                            }
-                        }
-                    }
-                    old_dist = dist;
-                }
+                snapnum += 1;
                 tout+=dtout;              /* increase time of output/next insertion */
             }
 
 
         } while (sign**t<sign*(tmax));
         // write final snapshot
-        if (snapshot) write_snapshot(parameters, gal, *t, snapnum);
+        if (SNAPSHOT) write_snapshot(parameters, gal, *t, snapnum);
 	return 0;
 
 }
 
 
 /* ---------- advancement ---------- */
-void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
+int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters) {
 	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 	int k;
 
     hh = dt*0.5;
+    int err = 0;
     if (RK4) {
-    	getforce_gals(x, v, acc0, gal_num, gal, parameters);
+    	err = getforce_gals(x, v, acc0, gal_num, gal, parameters);
     	for (k=0;k<3;k++) {                /* first half-step */
     	    xt1[k] = *(x+k)+hh**(v+k);
     	    vt1[k] = *(v+k)+hh**(acc0+k);
     	}
 
-    	getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
+    	err = getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, parameters);
     	for (k=0;k<3;k++) {                /* second half-step */
     	    xt2[k] = *(x+k)+hh*vt1[k];
     	    vt2[k] = *(v+k)+hh**(acc1+k);
     	}
 
-    	getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
+    	err = getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, parameters);
     	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
     	    xt3[k] = *(x+k)+dt*vt2[k];
     	    vt3[k] = *(v+k)+dt**(acc2+k);
     	}
 
-	getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
+	err = getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, parameters);
 	for (k=0;k<3;k++) {                /* Runge-Kutta formula */
 	    *(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
 	    *(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
@@ -276,14 +242,14 @@ void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, stru
     }
     else {  // modified leapfrog
         // ai
-        getforce_gals(x, v, acc0, gal_num, gal, parameters);
+        err = getforce_gals(x, v, acc0, gal_num, gal, parameters);
         // vi+1/2 and xi+1/2
         for (k=0;k<3;k++) {
             vt1[k] = *(v+k)+ *(acc0+k)*hh;
             xt1[k] = *(x+k)+ *(v+k)*hh;
         }
         // ai+1/2
-        getforce_gals(xt1, vt1, acc1, gal_num, gal, parameters);
+        err = getforce_gals(xt1, vt1, acc1, gal_num, gal, parameters);
         //vi+1 and xi+1
         for (k=0;k<3;k++) {
             vt1[k] = *(v+k)+ *(acc1+k)*dt;
@@ -291,14 +257,14 @@ void do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, stru
             *(v+k) = vt1[k];
         }
     }
+    return err;
 }
 
 
-void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
-    //printf("%10.5f, %10.5f, %10.5f ", *(a+0), *(a+1), *(a+2));    
-    //getforce(x, v, a, parameters, gal[gal_num]);
+int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
     
     int i;
+    int err = 0;
     double r;
     double ax = 0.0;
     double ay = 0.0;
@@ -324,9 +290,6 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 	        (r+gal[i].b1_LMJ))*(*(x+1) - gal[i].pos[1])/r;
 	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
 	        (r+gal[i].b1_LMJ))*(*(x+2) - gal[i].pos[2])/r;
-          //  if (r == r) {
-          //      printf("Bulge %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
-          //  }
             //Miyamato disk
 	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
 	             pow(*(x+1) - gal[i].pos[1], 2) +
@@ -341,9 +304,6 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
 	                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
 	                                                    + pow(gal[i].b2_LMJ, 2))
 	                                             * (*(x+2) - gal[i].pos[2]);
-          //  if (r == r) {
-          //      printf("disk %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
-          //  }
             // Dark Matter Halo
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                pow(*(x+1) - gal[i].pos[1], 2) +
@@ -374,9 +334,6 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                 az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
                     pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
             }
-          //  if (r == r) {
-            //    printf("Halo %10.5f %10.5f %10.5f %10.5f\n", r, ax, ay, az); 
-           // }
             // dynamical friction
             if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy?
                 //relative velocity
@@ -385,13 +342,13 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
                 vz = (*(v+2) - gal[i].vel[2]);
                 vr = sqrt(vx*vx + vy*vy + vz*vz);
 
-                dynamical_friction(r, vx, vy, vz, vr,
-                                   &ax, &ay, &az,
-                                   gal[i].halo_type, gal[i].mhalo,
-                                   gal[i].r_halo, gal[i].gamma, gal[i].c_halo,
-                                   gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
-                                   gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
-                                   gal[gal_num].mhalo, gal[gal_num].r_halo);
+                err = dynamical_friction(r, vx, vy, vz, vr,
+                                         &ax, &ay, &az,
+                                         gal[i].halo_type, gal[i].mhalo,
+                                         gal[i].r_halo, gal[i].gamma, gal[i].c_halo,
+                                         gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
+                                         gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
+                                         gal[gal_num].mhalo, gal[gal_num].r_halo);
             
                    
             }
@@ -401,120 +358,17 @@ void getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal
     *(a+0) = ax;
     *(a+1) = ay;
     *(a+2) = az;
-
-}
-
-
-/* ----------- force ----------- */
-void getforce(double *x, double *v, double *a, struct Params parameters, struct Gal gal){
-	double r1, r2, r3;
-        double ax = 0.0;
-        double ay = 0.0;
-        double az = 0.0;
-
-    // Potential for MW
-	//Hernquist bulge
-    r1 = sqrt(*x * *x + *(x+1) * *(x+1) + *(x+2) * *(x+2));
-
-    ax += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-            (r1+parameters.b1_LMJ))**x/r1;
-    ay += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-            (r1+parameters.b1_LMJ))**(x+1)/r1;
-    az += -G*parameters.M1_LMJ/((r1+parameters.b1_LMJ)*
-            (r1+parameters.b1_LMJ))**(x+2)/r1;
-
-    //Miyamato disk
-    r2 = sqrt(pow(*x, 2) +
-              pow(*(x+1), 2) +
-              pow(parameters.a2_LMJ + sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)), 2));
-
-    ax += -G*parameters.M2_LMJ/(r2*r2*r2) * *x;
-    ay += -G*parameters.M2_LMJ/(r2*r2*r2) * *(x+1);
-    az += -G*parameters.M2_LMJ/(r2*r2*r2) * (parameters.a2_LMJ + sqrt(pow(*(x+2), 2)
-                + pow(parameters.b2_LMJ, 2)))/
-            sqrt(pow(*(x+2), 2) + pow(parameters.b2_LMJ, 2)) * *(x+2);
-
-    // Dark matter halo
-    if (parameters.Mhalo > 0.0){ // Avoid divide by zero errors
-
-        r3 = sqrt(pow(*x, 2) + pow(*(x+1), 2) + pow(*(x+2)/parameters.q_halo, 2));
-
-        if (parameters.halo_type == 2) {  //NFW
-            double constant = -G*parameters.Mhalo/
-                        (log(1+parameters.c_halo)-parameters.c_halo/(1+parameters.c_halo));
-            ax += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                1.0/(parameters.r_halo+r3)) * *x/pow(r3, 2);
-            ay += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                1.0/(parameters.r_halo+r3)) * *(x+1)/pow(r3, 2);
-            az += constant * (log(1.0 + r3/parameters.r_halo)/r3 -
-                                1.0/(parameters.r_halo+r3)) * *(x+2)/
-                                pow(parameters.q_halo*parameters.q_halo*r3, 2);
-
-        } else { // Dehnen
-            ax += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                    pow(parameters.r_halo + r3, 3) * *x;
-            ay += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                    pow(parameters.r_halo + r3, 3) * *(x+1);
-            az += -G*parameters.Mhalo * pow(r3/(parameters.r_halo + r3), -parameters.gamma)/
-                                    pow(parameters.r_halo + r3, 3) * *(x+2)/pow(parameters.q_halo, 2);
-        }
-        if (DYNAMICALFRICTION_MAIN) {
-            //relative velocity
-            double vr = sqrt(*v* *v + *(v+1)* *(v+1) + *(v+2) * *(v+2));
-            dynamical_friction(r3, *v, *(v+1), *(v+2), vr,
-                               &ax, &ay, &az,
-                               parameters.halo_type, parameters.Mhalo,
-                               parameters.r_halo, parameters.gamma, parameters.c_halo,
-                               parameters.dyn_L_eq, parameters.dyn_C_eq, parameters.dyn_alpha_eq,
-                               parameters.dyn_L_uneq, parameters.dyn_C_uneq, parameters.dyn_alpha_uneq,
-                               gal.mhalo, gal.r_halo);
-
-
-        }
-    }
-    //printf("%10.5f, %10.5f, %10.5f\n", ax, ay, az);
-    *(a+0) = ax;
-    *(a+1) = ay;
-    *(a+2) = az;
-}
-
-
-void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
-    int n;
-    int ngals = parameters.ngals;
-    char *folder = parameters.outputdir;
-    FILE *snapfile;
-    char snapname[50];
-    double acc0[3];
-    sprintf(snapname, "%ssnapshot.csv.%03d", folder, snapnumber);
-    snapfile = fopen(snapname, "w");
-    fprintf(snapfile,"NAME,X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
-    for (n=0; n<ngals; n++){
-        getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, parameters);
-        fprintf(snapfile,"%s,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
-                gal[n].name,
-                gal[n].pos[0],
-                gal[n].pos[1],
-                gal[n].pos[2],
-                gal[n].vel[0],
-                gal[n].vel[1],
-                gal[n].vel[2],
-                acc0[0],
-                acc0[1],
-                acc0[2],
-                t);
-    }
-    fclose(snapfile);
+    return err;
 }
 
 
 // Calculate Dynamical Friction acceleration
-void dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
-                        double *ax, double *ay, double *az,  // accelerations update in function
-                        int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
-                        double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
-                        double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
-                        double m_gal, double r_gal){  // companion mass and scale length
+int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
+                       double *ax, double *ay, double *az,  // accelerations update in function
+                       int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
+                       double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
+                       double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
+                       double m_gal, double r_gal){  // companion mass and scale length
     double sigma = 0.0;
     double density = 0.0;
     double dyn_L, dyn_C, dyn_alpha;
@@ -607,6 +461,7 @@ void dynamical_friction(double r, double vx, double vy, double vz, double vr,  /
     *az += -4.0*Pi*G*G*m_gal*density*coulomb*
         (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vz/pow(vr, 3);
 
+    return 0;
 }
 
 double tidal_condition (double x, void * params)
@@ -649,27 +504,86 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
                   galD.c_halo, galG.c_halo};
   F.function = &tidal_condition;
   F.params = (void *)p;
+  gsl_error_handler_t * old_handler = gsl_set_error_handler(&custom_gsl_error_handler);
 
   T = gsl_min_fminimizer_brent;
   s = gsl_min_fminimizer_alloc (T);
-  gsl_min_fminimizer_set (s, &F, m, a, b);
+  status = gsl_min_fminimizer_set (s, &F, m, a, b);
+  if (status){
+      return -1.0; // GSL reports non-zero error codes
+  }
 
+  
   do
     {
       iter++;
       status = gsl_min_fminimizer_iterate (s);
+        
+      if (status) {
+          break;
+      }
 
       m = gsl_min_fminimizer_x_minimum (s);
       a = gsl_min_fminimizer_x_lower (s);
       b = gsl_min_fminimizer_x_upper (s);
+    
 
       status 
         = gsl_min_test_interval (a, b, 0.001, 0.001);
+    
 
     }
   while (status == GSL_CONTINUE && iter < max_iter);
 
+  if (status){
+      return -1.0; // GSL reports non-zero error codes
+  }
   gsl_min_fminimizer_free (s);
 
   return m;
 }
+
+
+void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
+    int n;
+    int ngals = parameters.ngals;
+    char *folder = parameters.outputdir;
+    FILE *snapfile;
+    char snapname[50];
+    double acc0[3];
+    sprintf(snapname, "%ssnapshot.csv.%03d", folder, snapnumber);
+    snapfile = fopen(snapname, "w");
+    fprintf(snapfile,"NAME,X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
+    for (n=0; n<ngals; n++){
+        getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, parameters);
+        fprintf(snapfile,"%s,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
+                gal[n].name,
+                gal[n].pos[0],
+                gal[n].pos[1],
+                gal[n].pos[2],
+                gal[n].vel[0],
+                gal[n].vel[1],
+                gal[n].vel[2],
+                acc0[0],
+                acc0[1],
+                acc0[2],
+                t);
+    }
+    fclose(snapfile);
+}
+
+
+void record_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot){
+    int n, i;
+    int ngals = parameters.ngals;
+    for (n=0; n<ngals; n++){
+        output_snapshot[snapnumber][n].name = gal[n].name;
+        for (i=0; i<3; i++){
+            output_snapshot[snapnumber][n].pos[i] = gal[n].pos[i];
+            output_snapshot[snapnumber][n].vel[i] = gal[n].vel[i];
+        }
+        output_snapshot[snapnumber][n].t = t;
+    }
+}
+
+
