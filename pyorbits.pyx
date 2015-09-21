@@ -1,3 +1,6 @@
+#encoding: utf-8
+#cython: profile=False
+
 import numpy as np
 cimport numpy as np
 from libc.stdlib cimport malloc

@@ -33,6 +33,8 @@ data/
 
 *.so
 
+output*/
+
 emcee/utils.pyc
 
 emcee/sampler.pyc

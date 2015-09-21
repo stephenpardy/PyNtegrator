@@ -36,11 +36,11 @@ int orbit(int ngals,
     //get position of cluster at t = -tpast
     double sign, tmax, dtoutt, t;
     int err = 0;
-    if (tpast < 0.0) { 
+    if (tpast < 0.0) {
         sign = -1.0;
         tmax = tpast;
         // If we don't want to integrate forward, then save snapshots as we go back
-        if (tfuture <= 0.0){ 
+        if (tfuture <= 0.0){
             dtoutt = -1.0*dtout;
         } else {  // otherwise just save a snapshot at the end of the backward integration
             dtoutt = tpast;
@@ -72,7 +72,6 @@ int rk4_drv(double *t,
             struct Params parameters,
             double sign,
             struct Snapshot **output_snapshots){
-        struct OrbitStats stats;
         int snapnum = 0;
 	double tout, diff, dt = 0.0;
 	double xe1[3], ve1[3], difftemp;
@@ -504,7 +503,7 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
                   galD.c_halo, galG.c_halo};
   F.function = &tidal_condition;
   F.params = (void *)p;
-  gsl_error_handler_t * old_handler = gsl_set_error_handler(&custom_gsl_error_handler);
+  gsl_set_error_handler(&custom_gsl_error_handler);
 
   T = gsl_min_fminimizer_brent;
   s = gsl_min_fminimizer_alloc (T);
@@ -513,12 +512,11 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
       return -1.0; // GSL reports non-zero error codes
   }
 
-  
   do
     {
       iter++;
       status = gsl_min_fminimizer_iterate (s);
-        
+
       if (status) {
           break;
       }
@@ -526,11 +524,9 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
       m = gsl_min_fminimizer_x_minimum (s);
       a = gsl_min_fminimizer_x_lower (s);
       b = gsl_min_fminimizer_x_upper (s);
-    
 
-      status 
-        = gsl_min_test_interval (a, b, 0.001, 0.001);
-    
+
+      status = gsl_min_test_interval (a, b, 0.001, 0.001);
 
     }
   while (status == GSL_CONTINUE && iter < max_iter);
