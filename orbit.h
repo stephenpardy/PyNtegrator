@@ -36,6 +36,7 @@ struct Gal // companion galaxies
     double dyn_L_uneq;
     double dyn_alpha_uneq;
     int tidal_trunc; // does the galaxy become tidally truncated?
+    int stripped;
     double rt;
     int halo_type;
     int inplace;
@@ -58,6 +59,7 @@ struct Params // Galactic and orbital parameters
     double dtout;
     int ngals; //number of dwarfs
     char *outputdir; //outputfolder
+    int snapshot; // save snapshots to disk
 };
 
 //functions
@@ -96,6 +98,9 @@ double calc_rt(double r, // distance
                struct Gal galG, // galaxy doing the tidal stripping
                struct Gal galD); // galaxy being stripped
 
+double binding_energy(struct Gal gal);
+double binding_t(double x, void *param);
+double binding_w(double x, void *param);
 //integration parameters
 double const tstart = 0.0;          //time at input of cluster coordinates [Gyr], usually today, i.e. 0.0
 
@@ -106,8 +111,5 @@ double const dtmax = 0.025;          //maximum time-step [Gyr]
 //double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
 int const VARIABLE_TIMESTEPS = 0;
 int const RK4 = 1; // Use a Runge-Kutta? Alt. is leapfrog.
-
-//Write out snapshot during integration?
-int const SNAPSHOT = 1;
 
 

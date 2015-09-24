@@ -38,6 +38,7 @@ cdef extern from *:
         double dyn_L_uneq
         double dyn_alpha_uneq
         int tidal_trunc
+        int stripped
         double rt
         int halo_type
         int inplace
@@ -51,6 +52,7 @@ cdef extern from *:
         double dtout
         int ngals
         char *outputdir
+        int snapshot
 
     struct Snapshot:
         char *name
@@ -62,15 +64,16 @@ cdef extern from *:
 def run(dict input_parameters):
     cdef str param
     cdef dict galaxy
+    cdef int i, n, j
+    cdef Params parameters
+    cdef Snapshot **output_snapshots
 
     if 'galaxies' not in input_parameters.keys():
         raise ValueError("Must define galaxies to integrate.")
-        return None
-
-    cdef Snapshot **output_snapshots
 
     cdef int ngals = len(input_parameters['galaxies'])
     cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
+
     for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
         gal[n].name = gal_name
         gal[n].mhalo = galaxy['mass']
@@ -96,12 +99,10 @@ def run(dict input_parameters):
 
         gal[n].tidal_trunc = galaxy['tidal_truncation']
         gal[n].rt = np.nan
+        gal[n].stripped = 0
         for i in range(3):
             gal[n].pos[i] = galaxy['pos'][i]
             gal[n].vel[i] = galaxy['vel'][i]
-
-
-    cdef Params parameters
 
     # Read parameters
     parameters.tpast = input_parameters["tpast"]
@@ -109,8 +110,11 @@ def run(dict input_parameters):
     parameters.tfuture = input_parameters["tfuture"]
     parameters.dt0 = input_parameters['dt0']
     parameters.ngals = ngals
+    parameters.snapshot = input_parameters['save_snapshot']
 
     parameters.outputdir = input_parameters["outputdir"]
+
+
     cdef int nsnaps = 0
     if (parameters.tpast < 0.0):
         if (parameters.tfuture <= 0.0):
@@ -137,7 +141,7 @@ def run(dict input_parameters):
     err = orbit(ngals, parameters, gal, output_snapshots)
 
     if (err > 0):
-        return None
+        raise RuntimeError("Problem in integration.")
 
     #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
     # Had a weird error with the string representation of the output
@@ -197,28 +201,36 @@ def test_location(dict input_parameters):
         dict input_parameters
         See above
     """
-    cdef list results = run(input_parameters)
+    cdef list results
+    try:
+        results = run(input_parameters)
+    except RuntimeError, e:
+        print({"Runtime Error: {:s}".format(e)})
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
     cdef int ngals = len(input_parameters['galaxies'])
     cdef double ln_likelihood
-    if results is not None:
-        model_pos = np.array([results[-1][i]['pos'][j]
-                              for i in xrange(ngals)
-                              for j in xrange(3)])
 
-        model_vel = np.array([results[-1][i]['vel'][j]
-                              for i in xrange(ngals)
-                              for j in xrange(3)])
+    model_pos = np.array([results[-1][i]['pos'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
 
-        ln_likelihood = likelihood(ngals,
-                                   model_pos,
-                                   model_vel,
-                                   input_parameters['pos'],
-                                   input_parameters['vel'],
-                                   input_parameters['pos_err'],
-                                   input_parameters['vel_err'])
-        return ln_likelihood
-    else:
-        raise RuntimeError('Incorrect parameters or problem with run')
+    model_vel = np.array([results[-1][i]['vel'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
+
+    ln_likelihood = likelihood(ngals,
+                               model_pos,
+                               model_vel,
+                               input_parameters['pos'],
+                               input_parameters['vel'],
+                               input_parameters['pos_err'],
+                               input_parameters['vel_err'])
+    return ln_likelihood
+
 
 
 
@@ -238,28 +250,36 @@ def test_orbit(dict input_parameters,
         np.array data_vel
             2d array with vx, vy, vz for each snapshot for data
     """
-    cdef list results = run(input_parameters)
+    cdef list results
     cdef double ln_likelihood
-    cdef int ngals = len(input_parameters['galaxies'])
     cdef int nsnaps, g
-    if results is not None:
-        nsnaps = len(results)
-        g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
-        g2 = np.where([results[0][i]['name'] == gal_name2 for i in xrange(ngals)])[0]
+    try:
+        results = run(input_parameters)
+    except RuntimeError, e:
+        print({"Runtime Error: {:s}".format(e)})
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
 
-        model_pos = np.zeros((nsnaps, 3))
-        for i in xrange(nsnaps):
-            for j in xrange(3):
-                model_pos[i, j] = results[i][g]['pos'][j]-results[i][g2]['pos'][j]
+    cdef int ngals = len(input_parameters['galaxies'])
 
-        ln_likelihood = likelihood2(model_pos,
-                                    data_pos,
-                                    input_parameters['pos_err'])
+    nsnaps = len(results)
+    g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == gal_name2 for i in xrange(ngals)])[0]
+
+    model_pos = np.zeros((nsnaps, 3))
+    for i in xrange(nsnaps):
+        for j in xrange(3):
+            model_pos[i, j] = results[i][g]['pos'][j]-results[i][g2]['pos'][j]
+
+    ln_likelihood = likelihood2(model_pos,
+                                data_pos,
+                                input_parameters['pos_err'])
 
 
-        return ln_likelihood
-    else:
-        raise RuntimeError('Incorrect parameters or problem with run')
+    return ln_likelihood
+
 
 
 
@@ -269,7 +289,7 @@ def test_orbit(dict input_parameters,
 def likelihood2(np.ndarray[double, ndim=2, mode="c"] model_pos,
                 np.ndarray[double, ndim=2, mode="c"] data_pos,
                 double error_pos):
-    cdef int i, j
+    cdef int i
 
     cdef double Small = 1e-5
 
@@ -281,7 +301,7 @@ def likelihood2(np.ndarray[double, ndim=2, mode="c"] model_pos,
 
     for i in xrange(n_model):
         # Don't add in any NaN values
-        if (any(model_pos[j, :] != model_pos[j, :])) or (any(data_pos[i, :] != data_pos[i, :])):
+        if (any(model_pos[i, :] != model_pos[i, :])) or (any(data_pos[i, :] != data_pos[i, :])):
             continue
         ln_likelihood_pos += np.log(1.0/n_model*np.sum(np.exp(-0.5*((model_pos[:, 0]-data_pos[i, 0])**2 +
                                                                     (model_pos[:, 1]-data_pos[i, 1])**2 +
@@ -303,49 +323,57 @@ def orbit_statistics(dict input_parameters,
                      str gal_name2,
                      str output_file):
 
-    cdef list results = run(input_parameters)
+    cdef list results
+
+    try:
+        results = run(input_parameters)
+    except RuntimeError, e:
+        print("Runtime Error: {:s}".format(e))
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
     cdef double ln_likelihood
     cdef int ngals = len(input_parameters['galaxies'])
-    cdef int nsnaps, g
-    if results is not None:
-        nsnaps = len(results)
-        g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
-        g2 = np.where([results[0][i]['name'] == gal_name2 for i in xrange(ngals)])[0]
+    cdef int nsnaps, g, g2
 
-        dist = [np.sqrt(np.sum((results[i][g]['pos']-results[i][g2]['pos'])**2)) for i in xrange(nsnaps)]
+    nsnaps = len(results)
+    g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == gal_name2 for i in xrange(ngals)])[0]
 
-        old_dist = None
-        direction = None
+    dist = [np.sqrt((results[i][g]['pos'][0]-results[i][g2]['pos'][0])**2 +
+                    (results[i][g]['pos'][1]-results[i][g2]['pos'][1])**2 +
+                    (results[i][g]['pos'][2]-results[i][g2]['pos'][2])**2) for i in xrange(nsnaps)]
 
-        apocenters = 0
-        pericenters = 0
+    old_dist = None
+    direction = None
 
-        for d in dist:
-            if old_dist is not None:
-                if direction is not None:
-                # already have a direction set
-                    if ((direction == 1) and (d >= old_dist)):
-                    # moving in and got further away
-                        direction = 0
-                        pericenters += 1
-                    elif ((direction == 0) and (d <= old_dist)):
-                    # moving out and got closer
-                        direction = 1
-                        apocenters += 1
+    cdef int apocenters = 0
+    cdef int pericenters = 0
+
+    for d in dist:
+        if old_dist is not None:
+            if direction is not None:
+            # already have a direction set
+                if ((direction == 1) and (d >= old_dist)):
+                # moving in and got further away
+                    direction = 0
+                    pericenters += 1
+                elif ((direction == 0) and (d <= old_dist)):
+                # moving out and got closer
+                    direction = 1
+                    apocenters += 1
+            else:
+            # set direction
+                if (d < old_dist):
+                    direction = 1  # inward
                 else:
-                # set direction
-                    if (d < old_dist):
-                        direction = 1  # inward
-                    else:
-                        direction = 0  # outward
+                    direction = 0  # outward
+        old_dist = d
 
+    return np.min(dist), np.max(dist), apocenters, pericenters
 
-
-            old_dist = d
-
-        return np.min(dist), np.max(dist), apocenters, pericenters
-    else:
-        raise RuntimeError('Incorrect parameters or problem with run')
 
 
 # On hold until we add tracer particles

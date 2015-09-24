@@ -3,6 +3,7 @@
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_min.h>
+#include <gsl/gsl_integration.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -72,16 +73,14 @@ int rk4_drv(double *t,
             struct Params parameters,
             double sign,
             struct Snapshot **output_snapshots){
-        int snapnum = 0;
+    int snapnum = 0;
 	double tout, diff, dt = 0.0;
 	double xe1[3], ve1[3], difftemp;
         //double rt = 1e+5;
-        double rt_temp, r;
-        int k, n, m;
-        int err = 0;
+    double rt_temp, r, E;
+    int k, n, m;
+    int err = 0;
 	int ngals = parameters.ngals;
-        //char name[50];
-        //sprintf(name, "temp.dat");
 	//initialize timesteps
 	tout = *t;		    /* time of next output/insertion */
 	dt = sign*dt0;                /* initial time step */
@@ -90,118 +89,128 @@ int rk4_drv(double *t,
 		/***********
 		 * GALAXY *
 		 ***********/
-            //advance each particle
+        //advance each particle
 	    int count = 0;
-            int laststep = 0;
+        int laststep = 0;
 	    do {
-		difftemp = 0.0;
+		    difftemp = 0.0;
 	        diff = 0.0;
-                // loop over each galaxy
-                for (n=0; n<ngals; n++){
-                    // If galaxy is fixed in place then do not advance it
-                    if ((*(gal+n)).inplace == 1) continue;
-                    // Otherwise take a step using a fixed or variable time step
-		    for (k=0;k<3;k++) {
-                        (*(gal+n)).post[k] = (*(gal+n)).pos[k];
-                        (*(gal+n)).velt[k] = (*(gal+n)).vel[k];
-			xe1[k]=(*(gal+n)).pos[k];
-			ve1[k]=(*(gal+n)).vel[k];
-		    }
-                    if (VARIABLE_TIMESTEPS) {
-		        err = do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
-		        err = do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);  /* Two half steps */
-		        err = do_step(0.5*dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);
-		        difftemp = sqrt(pow(xe1[0] - (*(gal+n)).post[0],2) +
-		                        pow(xe1[1] - (*(gal+n)).post[1],2) +
-		                        pow(xe1[2] - (*(gal+n)).post[2],2));
-                        if (difftemp > diff) {diff = difftemp;} // hold highest value to compare with mdiff below
-                    } else {
-		        err = do_step(dt, (*(gal+n)).post, (*(gal+n)).velt, n, gal, parameters);      /* One full step */
-                    }
-                    // error somewhere in integration
-                    if (err) {
-                        return 1;
-                    }
+            // loop over each galaxy
+            for (n=0; n<ngals; n++){
+                // If galaxy is fixed in place, or stripped then do not advance it
+                if ((gal[n].inplace == 1) ||
+                    (gal[n].stripped == 1)){
+                    continue;
                 }
-                // end loop over each galaxy
-		if (!VARIABLE_TIMESTEPS || (diff<=mdiff)) {         /* Is difference below accuracy threshold? */
-		    *t+=dt;/* If yes -> continue and double step size */
-		    //TODO: update the test particles here
-                    for (n=0; n<ngals; n++){
+                    // Advance other particles using a fixed or variable time step
 		        for (k=0;k<3;k++) {
-			    (*(gal+n)).pos[k]=(*(gal+n)).post[k];
-			    (*(gal+n)).vel[k]=(*(gal+n)).velt[k];
+                    gal[n].post[k] = gal[n].pos[k];
+                    gal[n].velt[k] = gal[n].vel[k];
+			        xe1[k] = gal[n].pos[k];
+			        ve1[k] = gal[n].vel[k];
 		        }
-		    }
-                    // Tidal stripping
-                    //if (dt > 0) {
-                    for  (n=0; n<ngals; n++){
-                        if (gal[n].tidal_trunc == 1) {// tidal truncation turned on
-                            for (m=0; m<ngals; m++){ // look for all galaxies with dynamic friction turned on
-                                if ((m != n) && (gal[m].dyn_fric == 1)){ 
-                                    r = sqrt(pow(gal[n].pos[0]-gal[m].pos[0], 2) +
-                                             pow(gal[n].pos[1]-gal[m].pos[1], 2) +
-                                             pow(gal[n].pos[2]-gal[m].pos[2], 2));
-                                    rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
-                                    if (rt_temp < 0.0){ // error has occrued
-                                        return 1;
-                                    }
-                                    if (sign > 0){  // integrating forward
-                                        gal[n].rt = fmin(gal[n].rt, rt_temp);
-                                    } else if (sign < 0){  // integrating backward
-                                        gal[n].rt = fmax(gal[n].rt, rt_temp);
-                                    }
-                                    if (gal[n].halo_type == 1){ // Dehnen
-                                        gal[n].mhalo = gal[n].minit*pow(gal[n].rt/(gal[n].rt+gal[n].r_halo), 3-gal[n].gamma); // Dehnen
-                                    } else if (gal[n].halo_type == 2){ // NFW
-                                        gal[n].mhalo = gal[n].minit*(log(1+(gal[n].rt)/gal[n].r_halo)-gal[n].rt/(gal[n].r_halo+gal[n].rt))/(log(1+gal[n].c_halo) -gal[n].c_halo/(1+gal[n].c_halo));
-                                    } else { // Plummer
-                                        gal[n].mhalo = gal[n].minit*pow(gal[n].rt, 3)/pow(pow(gal[n].r_halo, 2) + pow(gal[n].rt, 2), 1.5);
-                                    }
+                if (VARIABLE_TIMESTEPS) {
+		            err = do_step(dt, xe1, ve1, n, gal, parameters);      /* One full step */
+		            err = do_step(0.5*dt, gal[n].post, gal[n].velt, n, gal, parameters);  /* Two half steps */
+		            err = do_step(0.5*dt, gal[n].post, gal[n].velt, n, gal, parameters);
+		            difftemp = sqrt(pow(xe1[0] - gal[n].post[0],2) +
+		                            pow(xe1[1] - gal[n].post[1],2) +
+		                            pow(xe1[2] - gal[n].post[2],2));
+                    if (difftemp > diff) {
+                        diff = difftemp;  // hold highest value to compare with mdiff below
+                    }
+                } else {
+		            err = do_step(dt, gal[n].post, gal[n].velt, n, gal, parameters);      /* One full step */
+                }
+                // error somewhere in integration
+                if (err) {
+                    return 1;
+                }
+            }  // end loop over each galaxy
+
+		    if (!VARIABLE_TIMESTEPS || (diff<=mdiff)) {         /* Is difference below accuracy threshold? */
+		        *t+=dt;/* If yes -> continue and double step size */
+		        //TODO: update the test particles here
+                for (n=0; n<ngals; n++){
+		            for (k=0;k<3;k++) {
+			            gal[n].pos[k]=gal[n].post[k];
+			            gal[n].vel[k]=gal[n].velt[k];
+		            }
+		        }
+                // Tidal stripping
+                for  (n=0; n<ngals; n++){
+                    if ((gal[n].tidal_trunc == 1) && (gal[n].stripped == 0)) {// tidal truncation turned on - galaxy intact
+                        for (m=0; m<ngals; m++){ // look for all galaxies with dynamic friction turned on
+                            if ((m != n) && // not self
+                            (gal[m].dyn_fric == 1) &&  // dynamical friction on
+                            (gal[m].stripped == 0)){  //not stripped
+                                r = sqrt(pow(gal[n].pos[0]-gal[m].pos[0], 2) +
+                                         pow(gal[n].pos[1]-gal[m].pos[1], 2) +
+                                         pow(gal[n].pos[2]-gal[m].pos[2], 2));
+                                rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
+                                if (rt_temp < 0.0){ // error has occrued
+                                    return 1;
+                                }
+                                if (sign > 0){  // integrating forward
+                                    gal[n].rt = fmin(gal[n].rt, rt_temp);
+                                } else if (sign < 0){  // integrating backward
+                                    gal[n].rt = fmax(gal[n].rt, rt_temp);
+                                }
+                                E = binding_energy(gal[n]);
+                                if (gal[n].halo_type == 1){ // Dehnen
+                                    gal[n].mhalo = gal[n].minit*pow(gal[n].rt/(gal[n].rt+gal[n].r_halo), 3-gal[n].gamma); // Dehnen
+                                } else if (gal[n].halo_type == 2){ // NFW
+                                    gal[n].mhalo = gal[n].minit*(log(1+(gal[n].rt)/gal[n].r_halo)-gal[n].rt/
+                                                                 (gal[n].r_halo+gal[n].rt))/
+                                                                (log(1+gal[n].c_halo) -gal[n].c_halo/
+                                                                                        (1+gal[n].c_halo));
+                                } else { // Plummer
+                                    gal[n].mhalo = gal[n].minit*pow(gal[n].rt, 3)/pow(pow(gal[n].r_halo, 2) +
+                                                                                      pow(gal[n].rt, 2), 1.5);
                                 }
                             }
                         }
                     }
-                    //}
-		    if (VARIABLE_TIMESTEPS) { //If we are with the threshold double the timestep and continue
-                        dt = dt*2.0;
-                    }
-		} else {
-		    dt = dt/2.0;  // if we are outside the threshold halve the timestep and try again
-		}
-                // Abort if the timestep ever gets too low
-		if (sign*dt < 0.01*dt0 && !laststep) {
-		    printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
-		    return 1;
-		}
-		count++;
+                }
+    		    if (VARIABLE_TIMESTEPS) { //If we are with the threshold double the timestep and continue
+                    dt = dt*2.0;
+                }
+		    } else {
+		        dt = dt/2.0;  // if we are outside the threshold halve the timestep and try again
+		    }
+            // Abort if the timestep ever gets too low
+		    if (sign*dt < 0.01*dt0 && !laststep) {
+		        printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
+		        return 1;
+		    }
+		    count++;
                 // round to the end of simulation time
-		if (sign*dt > dtmax) {
-		    dt = sign*dtmax;
-		}
+    		if (sign*dt > dtmax) {
+    		    dt = sign*dtmax;
+    		}
 
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
 	    if (sign**t>=sign*(tout)) {
-               // for (n=0; n<ngals; n++) {
-               //     if (gal[n].tidal_trunc == 1) {
-               //         printf("rt: %10.5f, m: %10.5f, t: %10.5f\n", gal[n].rt, gal[n].mhalo, *t);
-               //     }
-               // }
-
-                // First record the snapshot variable
-                record_snapshot(parameters, gal, *t, snapnum, output_snapshots);
-                // Then write out to disk if requested
-                if (SNAPSHOT){
-                    write_snapshot(parameters, gal, *t, snapnum);
+            for (n=0; n<ngals; n++) {
+                if (gal[n].tidal_trunc == 1) {
+                    printf("rt: %10.5f, m: %10.5f, t: %10.5f, E: %10.5f\n", gal[n].rt, gal[n].mhalo, *t, E);
                 }
-                snapnum += 1;
-                tout+=dtout;              /* increase time of output/next insertion */
             }
 
+            // First record the snapshot variable
+            record_snapshot(parameters, gal, *t, snapnum, output_snapshots);
+            // Then write out to disk if requested
+            if (parameters.snapshot){
+                write_snapshot(parameters, gal, *t, snapnum);
+            }
+            snapnum += 1;
+            tout+=dtout;              /* increase time of output/next insertion */
+        }
 
-        } while (sign**t<sign*(tmax));
-        // write final snapshot
-        if (SNAPSHOT) write_snapshot(parameters, gal, *t, snapnum);
+
+    } while (sign**t<sign*(tmax));
+    // write final snapshot
+    if (parameters.snapshot) write_snapshot(parameters, gal, *t, snapnum);
 	return 0;
 
 }
@@ -261,7 +270,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struc
 
 
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
-    
+
     int i;
     int err = 0;
     double r;
@@ -348,8 +357,7 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
                                          gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
                                          gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
                                          gal[gal_num].mhalo, gal[gal_num].r_halo);
-            
-                   
+
             }
         }
     }
@@ -386,27 +394,10 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
             dyn_L = dyn_L_eq;
             dyn_C = dyn_C_eq;
             dyn_alpha = dyn_alpha_eq;
-            //dyn_L = 0.02;
-            //dyn_L = 0.0;
-            //dyn_C = 1.0;
-            //dyn_C = 0.17;
-           // dyn_alpha = 0.15;
-            //dyn_alpha = 2.5;
         } else {
             dyn_L = dyn_L_uneq;
             dyn_C = dyn_C_uneq;
             dyn_alpha = dyn_alpha_uneq;
-            //Test against gadget
-            //dyn_L = 0.0;
-            //dyn_C = 0.1;
-            //dyn_alpha = 3.5;
-            //van der Marel 2012
-            //dyn_C =  1.22;
-            //dyn_alpha = 1.0;
-            //K+13 below
-            //dyn_L = 0.0;
-           // dyn_C = 1.6*3.0/r_gal;  // based off K+13 etc.
-           // dyn_alpha = 1.0;
         }
         coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
                                     dyn_alpha));
@@ -416,6 +407,7 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     * X and Velocity dispersion
     * XXXXXXXXXXXXXXXXXXXXXXXXX
     */
+    //calculate squared velocity dispersion
     if (halo_type == 1){
     // Hernquist 1D velocity dispersion - CForm from Mathematica -- only good for gamma == 1
         sigma = 3.0*sqrt(G*mhalo*r*pow(r_halo + r, 3)*
@@ -538,6 +530,111 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
 
   return m;
 }
+
+
+double binding_w(double x, void *params){
+
+    double *p = (double *)params;
+    // p[0] = M, p[1] = a, p[2] = gamma, p[3] = c, p[4] = type
+    double mass, density;
+
+    if (p[4] == 1) { // Dehnen
+
+        mass = p[0]*pow(x/(x+p[1]), 3-p[2]);
+        density = (3.0 - p[2])*p[0]/(4.0*Pi)*
+              p[1]/(pow(x, p[2])*pow(x + p[1], 4-p[2]));
+
+    } else if (p[4] == 2){ // NFW
+
+        mass = p[0]*(log(1+(x)/p[1])-(x)/(p[1]+x))/(log(1+p[3]) -p[3]/(1+p[3]));
+        density = p[0]/(4.0*Pi*pow(p[1], 3))/
+                        (log(1+p[3])-p[3]/(1+p[3]))/
+                        (x/p[1]*pow(1+x/p[1], 2));
+
+    } else {// Plummer
+
+        mass = p[0]*pow(x, 3)/pow(p[1]*p[1] + x*x, 1.5);
+        density = 3*p[0]/(4*Pi*pow(p[1], 3)*
+                pow(1+pow(x/p[1], 2), 2.5));
+
+    }
+
+    return x*density*mass;
+}
+
+
+double binding_t(double x, void *params){
+
+    double *p = (double *)params;
+    // p[0] = M, p[1] = a, p[2] = gamma, p[3] = c, p[4] = type
+    double density, sigma;
+
+    if (p[4] == 1) { // Dehnen
+        sigma = G*p[0]*x*pow(p[1] + x, 3)*
+            (-(25.0*pow(p[1], 3) + 52.0*pow(p[1], 2)*x +
+                42.0*p[1]*pow(x, 2) + 12.0*pow(x, 3))/
+                (12.0*pow(p[1], 4)*pow(p[1] + x, 4)) +
+                log((p[1] + x)/x)/pow(p[1], 5));
+
+        density = (3.0 - p[2])*p[0]/(4.0*Pi)*
+              p[1]/(pow(x, p[2])*pow(x + p[1], 4-p[2]));
+
+    } else if (p[4] == 2){ // NFW
+        // Numerical fit where max is at r=2.16258*a
+        double rvmax = 2.16258;
+        double VMAX = G*p[0]/
+                        (log(1+p[3])-p[3]/(1+p[3]))
+                        /(rvmax*p[1])*
+                        (log(1+rvmax)-rvmax/(1+rvmax));
+        // fitting formula from Zentner and Bullock 2003, eq. 6)
+        sigma = 3.0* VMAX *1.4393*pow(x, 0.354)/(1+1.1756*pow(x, 0.725));
+        density = p[0]/(4.0*Pi*pow(p[1], 3))/
+                        (log(1+p[3])-p[3]/(1+p[3]))/
+                        (x/p[1]*pow(1+x/p[1], 2));
+
+    } else {// Plummer
+        sigma = pow(p[1], 5)*G*p[0]*
+                    pow(1+pow(x/p[1], 2), 2.5)/
+                    (6.0*pow(pow(p[1], 2)+pow(x, 2), 3));
+        density = 3*p[0]/(4*Pi*pow(p[1], 3)*
+                pow(1+pow(x/p[1], 2), 2.5));
+
+    }
+
+    return x*x*density*sigma;
+}
+
+
+double binding_energy(struct Gal gal){
+    // init
+    int WORKSIZE = 100000;
+    double W, T;
+    double p[5] = {gal.minit, gal.r_halo, gal.gamma, gal.c_halo, gal.halo_type};
+    gsl_function F;
+    gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(WORKSIZE);
+    F.params = (void *)p;
+
+    // Integrate for W
+    F.function = &binding_w;
+    double result_w, abserr_w;
+
+    gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_w, &abserr_w);
+
+    // Now integrate for T
+    F.function = &binding_t;
+    double result_t, abserr_t;
+
+    gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_t, &abserr_t);
+
+    //Free integration space
+    gsl_integration_workspace_free(workspace);
+
+    W = -4.0*Pi*G*result_w;
+    T = 6.0*Pi*result_t;
+
+    return W+T; //dimensionless binding energy - negative is bound
+}
+
 
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
