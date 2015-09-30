@@ -8,6 +8,17 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+//integration parameters
+double const tstart = 0.0;          //time at input of cluster coordinates [Gyr], usually today, i.e. 0.0
+
+double const mdiff = 1.E-7;         //precission
+//double const dt0 = 1.E-5;         //initial time-step [Gyr]
+double const RMIN = 1.0E-1;         //Smallest allowed separation between galaxies (effectively a softening)
+double const dtmax = 0.025;          //maximum time-step [Gyr]
+//double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
+//double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
+int const VARIABLE_TIMESTEPS = 0;
+int const RK4 = 1; // Use a Runge-Kutta? Alt. is leapfrog.
 
 //currently does nothing
 void custom_gsl_error_handler(const char * reason,
@@ -37,25 +48,36 @@ int orbit(int ngals,
     //get position of cluster at t = -tpast
     double sign, tmax, dtoutt, t;
     int err = 0;
+    int RECORD_SNAP, WRITE_SNAP;
     if (tpast < 0.0) {
         sign = -1.0;
         tmax = tpast;
+        dtoutt = -1.0*dtout;
+
         // If we don't want to integrate forward, then save snapshots as we go back
         if (tfuture <= 0.0){
-            dtoutt = -1.0*dtout;
-        } else {  // otherwise just save a snapshot at the end of the backward integration
-            dtoutt = tpast;
+            RECORD_SNAP = 1;
+            WRITE_SNAP = parameters.snapshot; // Use users choice
+        } else {  // otherwise don't save snapshots during backward integration
+            RECORD_SNAP = 0;
+            WRITE_SNAP = 0;
         }
 
         t = tstart;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign, output_snapshots);
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
+                      parameters, sign, output_snapshots,
+                      RECORD_SNAP, WRITE_SNAP);
     }
     if (tfuture > 0.0) {
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
         sign = 1.0;
         dtoutt = dtout;
+        RECORD_SNAP = 1;  // Always save going forward
+        WRITE_SNAP = parameters.snapshot;  // Use users choice
         tmax = tfuture;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal, parameters, sign, output_snapshots);
+        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
+                      parameters, sign, output_snapshots,
+                      RECORD_SNAP, WRITE_SNAP);
     }
 
     free(gal);
@@ -72,7 +94,9 @@ int rk4_drv(double *t,
             struct Gal *gal,
             struct Params parameters,
             double sign,
-            struct Snapshot **output_snapshots){
+            struct Snapshot **output_snapshots,
+            int RECORD_SNAP,
+            int WRITE_SNAP){
     int snapnum = 0;
 	double tout, diff, dt = 0.0;
 	double xe1[3], ve1[3], difftemp;
@@ -139,7 +163,8 @@ int rk4_drv(double *t,
 		        }
                 // Tidal stripping
                 for  (n=0; n<ngals; n++){
-                    if ((gal[n].tidal_trunc == 1) && (gal[n].stripped == 0)) {// tidal truncation turned on - galaxy intact
+                    if ((gal[n].tidal_trunc == 1) &&
+                        (gal[n].stripped == 0)) {// tidal truncation turned on - galaxy intact
                         for (m=0; m<ngals; m++){ // look for all galaxies with dynamic friction turned on
                             if ((m != n) && // not self
                             (gal[m].dyn_fric == 1) &&  // dynamical friction on
@@ -149,16 +174,22 @@ int rk4_drv(double *t,
                                          pow(gal[n].pos[2]-gal[m].pos[2], 2));
                                 rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
                                 if (rt_temp < 0.0){ // error has occrued
-                                    return 1;
+                                    E = binding_energy(gal[n]);
+                                    if (E > 0){  // error due to galaxy being stripped
+                                        gal[n].stripped = 1;
+                                        break;
+                                    } else {  // some other error, exit
+                                        return 2;
+                                    }
                                 }
                                 if (sign > 0){  // integrating forward
                                     gal[n].rt = fmin(gal[n].rt, rt_temp);
                                 } else if (sign < 0){  // integrating backward
                                     gal[n].rt = fmax(gal[n].rt, rt_temp);
                                 }
-                                E = binding_energy(gal[n]);
+
                                 if (gal[n].halo_type == 1){ // Dehnen
-                                    gal[n].mhalo = gal[n].minit*pow(gal[n].rt/(gal[n].rt+gal[n].r_halo), 3-gal[n].gamma); // Dehnen
+                                    gal[n].mhalo = gal[n].minit*pow(gal[n].rt/(gal[n].rt+gal[n].r_halo), 3-gal[n].gamma);
                                 } else if (gal[n].halo_type == 2){ // NFW
                                     gal[n].mhalo = gal[n].minit*(log(1+(gal[n].rt)/gal[n].r_halo)-gal[n].rt/
                                                                  (gal[n].r_halo+gal[n].rt))/
@@ -181,7 +212,7 @@ int rk4_drv(double *t,
             // Abort if the timestep ever gets too low
 		    if (sign*dt < 0.01*dt0 && !laststep) {
 		        printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
-		        return 1;
+		        return 3;
 		    }
 		    count++;
                 // round to the end of simulation time
@@ -191,16 +222,22 @@ int rk4_drv(double *t,
 
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
 	    if (sign**t>=sign*(tout)) {
-            for (n=0; n<ngals; n++) {
-                if (gal[n].tidal_trunc == 1) {
-                    printf("rt: %10.5f, m: %10.5f, t: %10.5f, E: %10.5f\n", gal[n].rt, gal[n].mhalo, *t, E);
-                }
+            E = binding_energy(gal[n]);
+            if (E > 0.0){
+                gal[n].stripped = 1;
             }
+            //for (n=0; n<ngals; n++) {
+            //    if (gal[n].tidal_trunc == 1) {
+            //        printf("rt: %10.5f, m: %10.5f, t: %10.5f, E: %10.5f\n", gal[n].rt, gal[n].mhalo, *t, E);
+            //    }
+            //}
 
             // First record the snapshot variable
-            record_snapshot(parameters, gal, *t, snapnum, output_snapshots);
-            // Then write out to disk if requested
-            if (parameters.snapshot){
+            if (RECORD_SNAP){
+                record_snapshot(parameters, gal, *t, snapnum, output_snapshots);
+            }
+            // Then write out to disk
+            if (WRITE_SNAP){
                 write_snapshot(parameters, gal, *t, snapnum);
             }
             snapnum += 1;
@@ -281,7 +318,6 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
     double vy = 0.0;
     double vz = 0.0;
     double vr = 0.0;
-    double constant;
 
     int ngals = parameters.ngals;
     // get the force from all other galaxies
@@ -291,73 +327,49 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                  pow(*(x+1) - gal[i].pos[1], 2) +
                  pow(*(x+2) - gal[i].pos[2], 2));
-
-	    ax += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-	        (r+gal[i].b1_LMJ))*(*x - gal[i].pos[0])/r;
-	    ay += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-	        (r+gal[i].b1_LMJ))*(*(x+1) - gal[i].pos[1])/r;
-	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-	        (r+gal[i].b1_LMJ))*(*(x+2) - gal[i].pos[2])/r;
+            if (r > RMIN){
+        	    ax += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+        	        (r+gal[i].b1_LMJ))*(*x - gal[i].pos[0])/r;
+        	    ay += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+        	        (r+gal[i].b1_LMJ))*(*(x+1) - gal[i].pos[1])/r;
+        	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
+        	        (r+gal[i].b1_LMJ))*(*(x+2) - gal[i].pos[2])/r;
+            }
             //Miyamato disk
-	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
-	             pow(*(x+1) - gal[i].pos[1], 2) +
-	             pow(gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-	                                      + pow(gal[i].b2_LMJ, 2)), 2)
-	             );
-
-	    ax += -G*gal[i].M2_LMJ/(r*r*r) * (*x - gal[i].pos[0]);
-	    ay += -G*gal[i].M2_LMJ/(r*r*r) * (*(x+1) - gal[i].pos[1]);
-	    az += -G*gal[i].M2_LMJ/(r*r*r) * (gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-	                                                    + pow(gal[i].b2_LMJ, 2)))
-	                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-	                                                    + pow(gal[i].b2_LMJ, 2))
-	                                             * (*(x+2) - gal[i].pos[2]);
+    	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
+    	             pow(*(x+1) - gal[i].pos[1], 2) +
+    	             pow(gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+    	                                      + pow(gal[i].b2_LMJ, 2)), 2)
+    	             );
+            if (r > RMIN){
+        	    ax += -G*gal[i].M2_LMJ/(r*r*r) * (*x - gal[i].pos[0]);
+        	    ay += -G*gal[i].M2_LMJ/(r*r*r) * (*(x+1) - gal[i].pos[1]);
+        	    az += -G*gal[i].M2_LMJ/(r*r*r) * (gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+        	                                                    + pow(gal[i].b2_LMJ, 2)))
+        	                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+        	                                                    + pow(gal[i].b2_LMJ, 2))
+        	                                             * (*(x+2) - gal[i].pos[2]);
+            }
             // Dark Matter Halo
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                pow(*(x+1) - gal[i].pos[1], 2) +
                pow(*(x+2) - gal[i].pos[2], 2));
+            if (r > RMIN){
+                halo_acc(r, gal[i], x, &ax, &ay, &az);
+                // dynamical friction
+                if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy?
+                    //relative velocity
+                    vx = (*v - gal[i].vel[0]);
+                    vy = (*(v+1) - gal[i].vel[1]);
+                    vz = (*(v+2) - gal[i].vel[2]);
+                    vr = sqrt(vx*vx + vy*vy + vz*vz);
 
-            if (gal[i].halo_type == 1) { // Dehnen
-                ax += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                    pow(gal[i].r_halo + r, 3) * (*x - gal[i].pos[0]);
-                ay += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                    pow(gal[i].r_halo + r, 3) * (*(x+1) - gal[i].pos[1]);
-                az += -G*gal[i].mhalo * pow(r/(gal[i].r_halo + r), -gal[i].gamma)/
-                                    pow(gal[i].r_halo + r, 3) * (*(x+2) - gal[i].pos[2]);
-            } else if (gal[i].halo_type == 2) {  // NFW
-                constant = -G*gal[i].mhalo/
-                        (log(1+gal[i].c_halo)-gal[i].c_halo/(1+gal[i].c_halo));
-                ax += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                1.0/(gal[i].r_halo+r)) * (*x - gal[i].pos[0])/pow(r, 2);
-                ay += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                1.0/(gal[i].r_halo+r)) * (*(x+1) - gal[i].pos[1])/pow(r, 2);
-                az += constant * (log(1.0 + r/gal[i].r_halo)/r -
-                                1.0/(gal[i].r_halo+r)) * (*(x+2) - gal[i].pos[2])/pow(r, 2);
+                    err = dynamical_friction(r, vx, vy, vz, vr,
+                                             &ax, &ay, &az,
+                                             gal[i], gal[gal_num].mhalo,
+                                             gal[gal_num].r_halo);
 
-            } else { // Plummer sphere
-                ax += -2.0*G*gal[i].mhalo* (*x - gal[i].pos[0])/
-                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
-                ay += -2.0*G*gal[i].mhalo* (*(x+1) - gal[i].pos[1])/
-                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
-                az += -2.0*G*gal[i].mhalo* (*(x+2) - gal[i].pos[2])/
-                    pow(pow(gal[i].r_halo, 2)+pow(r, 2), 1.5);
-            }
-            // dynamical friction
-            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy?
-                //relative velocity
-                vx = (*v - gal[i].vel[0]);
-                vy = (*(v+1) - gal[i].vel[1]);
-                vz = (*(v+2) - gal[i].vel[2]);
-                vr = sqrt(vx*vx + vy*vy + vz*vz);
-
-                err = dynamical_friction(r, vx, vy, vz, vr,
-                                         &ax, &ay, &az,
-                                         gal[i].halo_type, gal[i].mhalo,
-                                         gal[i].r_halo, gal[i].gamma, gal[i].c_halo,
-                                         gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
-                                         gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
-                                         gal[gal_num].mhalo, gal[gal_num].r_halo);
-
+                }
             }
         }
     }
@@ -368,21 +380,21 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
     return err;
 }
 
-
 // Calculate Dynamical Friction acceleration
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                        double *ax, double *ay, double *az,  // accelerations update in function
-                       int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
-                       double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
-                       double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
+                       struct Gal gal,
                        double m_gal, double r_gal){  // companion mass and scale length
     double sigma = 0.0;
     double density = 0.0;
     double dyn_L, dyn_C, dyn_alpha;
+    int halo_type = gal.halo_type;
+    double mhalo = gal.mhalo;
+    double r_halo = gal.r_halo;
+    double gamma = gal.gamma;
+    double c_halo = gal.c_halo;
     /*
-    * XXXXXXXXXXXXXXXXX
     * COULOMB LOGARITHM
-    * XXXXXXXXXXXXXXXXX
     */
     double coulomb;
     // alternative methods of coulomb logarithm
@@ -391,13 +403,13 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     } else {
         // van den Marel et al. 2012 eq. A1 and discussion in Appendix A
         if (abs(mhalo/m_gal - 1.0) < 0.3){ // within 30% of each other
-            dyn_L = dyn_L_eq;
-            dyn_C = dyn_C_eq;
-            dyn_alpha = dyn_alpha_eq;
+            dyn_L = gal.dyn_L_eq;
+            dyn_C = gal.dyn_C_eq;
+            dyn_alpha = gal.dyn_alpha_eq;
         } else {
-            dyn_L = dyn_L_uneq;
-            dyn_C = dyn_C_uneq;
-            dyn_alpha = dyn_alpha_uneq;
+            dyn_L = gal.dyn_L_uneq;
+            dyn_C = gal.dyn_C_uneq;
+            dyn_alpha = gal.dyn_alpha_uneq;
         }
         coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
                                     dyn_alpha));
@@ -407,42 +419,13 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     * X and Velocity dispersion
     * XXXXXXXXXXXXXXXXXXXXXXXXX
     */
-    //calculate squared velocity dispersion
-    if (halo_type == 1){
-    // Hernquist 1D velocity dispersion - CForm from Mathematica -- only good for gamma == 1
-        sigma = 3.0*sqrt(G*mhalo*r*pow(r_halo + r, 3)*
-            (-(25.0*pow(r_halo, 3) + 52.0*pow(r_halo, 2)*r +
-                42.0*r_halo*pow(r, 2) + 12.0*pow(r, 3))/
-                (12.0*pow(r_halo, 4)*pow(r_halo + r, 4)) +
-                log((r_halo + r)/r)/pow(r_halo, 5)));
-    } else if (halo_type == 2) {  //NFW
-        // Numerical fit where max is at r=2.16258*a
-        double rvmax = 2.16258;
-        double VMAX = sqrt(G*mhalo/
-                        (log(1+c_halo)-c_halo/(1+c_halo))
-                        /(rvmax*r_halo)*
-                        (log(1+rvmax)-rvmax/(1+rvmax)));
-        // fitting formula from Zentner and Bullock 2003, eq. 6)
-        sigma = 3.0* VMAX *1.4393*pow(r, 0.354)/(1+1.1756*pow(r, 0.725));
-    } else { //Plummer
-        sigma = 3.0*sqrt(pow(r_halo, 5)*G*mhalo*
-                    pow(1+pow(r/r_halo, 2), 2.5)/
-                    (6.0*pow(pow(r_halo, 2)+pow(r, 2), 3)));
-    }
+    halo_sigma(r, gal, &sigma);
+    //calculate velocity dispersion
 
     double X = vr/(sqrt(2.0)*sigma);
-    if (halo_type == 1) { //Hernquist
-        density = (3.0 - gamma)*mhalo/(4.0*Pi)*
-              r_halo/(pow(r, gamma)*pow(r + r_halo, 4-gamma));
-    } else if (halo_type == 2) { //NFW
-        // where rho0 = Mvir/(4*Pi*a^3)/(log(1+c)-c/(1+c))
-        density = mhalo/(4.0*Pi*pow(r_halo, 3))/
-                        (log(1+c_halo)-c_halo/(1+c_halo))/
-                        (r/r_halo*pow(1+r/r_halo, 2));
-    } else { //Plummer
-        density = 3*mhalo/(4*Pi*pow(r_halo, 3)*
-                pow(1+pow(r/r_halo, 2), 2.5));
-    }
+
+    halo_density(r, gal, &density);
+
     *ax += -4.0*Pi*G*G*m_gal*density*coulomb*
         (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
 
@@ -671,6 +654,7 @@ void record_snapshot(struct Params parameters, struct Gal *gal, double t, int sn
     int ngals = parameters.ngals;
     for (n=0; n<ngals; n++){
         output_snapshot[snapnumber][n].name = gal[n].name;
+        output_snapshot[snapnumber][n].stripped = gal[n].stripped;
         for (i=0; i<3; i++){
             output_snapshot[snapnumber][n].pos[i] = gal[n].pos[i];
             output_snapshot[snapnumber][n].vel[i] = gal[n].vel[i];

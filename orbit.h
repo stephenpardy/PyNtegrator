@@ -46,6 +46,7 @@ struct Gal // companion galaxies
 struct Snapshot  //snapshots to save
 {
     char *name;
+    int stripped;
     double pos[3];
     double vel[3];
     double t;
@@ -77,17 +78,20 @@ int rk4_drv(double *t,
             struct Gal *gal,
             struct Params parameters,
             double sign,
-            struct Snapshot **output_snapshots);
+            struct Snapshot **output_snapshots,
+            int RECORD_SNAP,
+            int WRITE_SNAP);
 
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters);
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struct Params parameters);
 
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                         double *ax, double *ay, double *az,  // accelerations update in function
-                        int halo_type, double mhalo, double r_halo, double gamma, double c_halo, // Halo properties
-                        double dyn_L_eq, double dyn_C_eq, double dyn_alpha_eq, // Roughly equal mass dynamical friction
-                        double dyn_L_uneq, double dyn_C_uneq, double dyn_alpha_uneq,  // Unequal mass dynamical friction
+                        struct Gal gal,
                         double m_gal, double r_gal);  // companion mass and friction
+void halo_acc(double r, struct Gal gal, double *x, double *ax, double *ay, double *az);
+void halo_sigma(double r, struct Gal gal, double *sigma);
+void halo_density(double r, struct Gal gal, double *density);
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);
 void record_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot);
@@ -101,15 +105,3 @@ double calc_rt(double r, // distance
 double binding_energy(struct Gal gal);
 double binding_t(double x, void *param);
 double binding_w(double x, void *param);
-//integration parameters
-double const tstart = 0.0;          //time at input of cluster coordinates [Gyr], usually today, i.e. 0.0
-
-double const mdiff = 1.E-7;         //precission
-//double const dt0 = 1.E-5;			//initial time-step [Gyr]
-double const dtmax = 0.025;          //maximum time-step [Gyr]
-//double const Rgalmin = 10.0;       //minimum galactocentric radius [pc]
-//double const Rgalmax = 1.0e10;    //maximum galactocentric radius [pc]
-int const VARIABLE_TIMESTEPS = 0;
-int const RK4 = 1; // Use a Runge-Kutta? Alt. is leapfrog.
-
-

@@ -3,10 +3,10 @@
 
 import numpy as np
 cimport numpy as np
-from libc.stdlib cimport malloc
+from libc.stdlib cimport malloc, free
 
 
-cdef extern from "orbit.c":
+cdef extern from 'orbit.c':
     int orbit(int ngals,
               Params parameters,
               Gal *gal,
@@ -56,6 +56,7 @@ cdef extern from *:
 
     struct Snapshot:
         char *name
+        int stripped
         double pos[3]
         double vel[3]
         double t
@@ -74,36 +75,41 @@ def run(dict input_parameters):
     cdef int ngals = len(input_parameters['galaxies'])
     cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
 
-    for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
-        gal[n].name = gal_name
-        gal[n].mhalo = galaxy['mass']
-        gal[n].minit = galaxy['mass']
-        gal[n].r_halo = galaxy['rad']
-        gal[n].gamma = galaxy['gamma']
-        gal[n].c_halo = galaxy['c']
-        gal[n].a2_LMJ = galaxy['a2']
-        gal[n].b2_LMJ = galaxy['b2']
-        gal[n].M2_LMJ = galaxy['m2']
-        gal[n].M1_LMJ = galaxy['m1']
-        gal[n].b1_LMJ = galaxy['b1']
-        gal[n].halo_type = galaxy['type']
-        gal[n].dyn_fric = galaxy['dynamical_friction']
-        gal[n].inplace = galaxy['inplace']
-        if galaxy['dynamical_friction'] == 1:
-            gal[n].dyn_C_eq = galaxy['dyn_C_eq']
-            gal[n].dyn_L_eq = galaxy['dyn_L_eq']
-            gal[n].dyn_alpha_eq = galaxy['dyn_alpha_eq']
-            gal[n].dyn_C_uneq = galaxy['dyn_C_uneq']
-            gal[n].dyn_L_uneq = galaxy['dyn_L_uneq']
-            gal[n].dyn_alpha_uneq = galaxy['dyn_alpha_uneq']
+    try:
+        for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
+            gal[n].name = gal_name
+            gal[n].mhalo = galaxy['mass']
+            gal[n].minit = galaxy['mass']
+            gal[n].r_halo = galaxy['rad']
+            gal[n].gamma = galaxy['gamma']
+            gal[n].c_halo = galaxy['c']
+            gal[n].a2_LMJ = galaxy['a2']
+            gal[n].b2_LMJ = galaxy['b2']
+            gal[n].M2_LMJ = galaxy['m2']
+            gal[n].M1_LMJ = galaxy['m1']
+            gal[n].b1_LMJ = galaxy['b1']
+            gal[n].halo_type = galaxy['type']
+            gal[n].dyn_fric = galaxy['dynamical_friction']
+            gal[n].inplace = galaxy['inplace']
+            if galaxy['dynamical_friction'] == 1:
+                gal[n].dyn_C_eq = galaxy['dyn_C_eq']
+                gal[n].dyn_L_eq = galaxy['dyn_L_eq']
+                gal[n].dyn_alpha_eq = galaxy['dyn_alpha_eq']
+                gal[n].dyn_C_uneq = galaxy['dyn_C_uneq']
+                gal[n].dyn_L_uneq = galaxy['dyn_L_uneq']
+                gal[n].dyn_alpha_uneq = galaxy['dyn_alpha_uneq']
 
-        gal[n].tidal_trunc = galaxy['tidal_truncation']
-        gal[n].rt = np.nan
-        gal[n].stripped = 0
-        for i in range(3):
-            gal[n].pos[i] = galaxy['pos'][i]
-            gal[n].vel[i] = galaxy['vel'][i]
-
+            gal[n].tidal_trunc = galaxy['tidal_truncation']
+            gal[n].rt = np.nan
+            gal[n].stripped = 0
+            for i in range(3):
+                gal[n].pos[i] = galaxy['pos'][i]
+                gal[n].vel[i] = galaxy['vel'][i]
+                gal[n].post[i] = galaxy['pos'][i]
+                gal[n].velt[i] = galaxy['vel'][i]
+    except KeyError, e:
+        print('Missing parameter from galaxy %s' % gal[n].name)
+        raise KeyError, e
     # Read parameters
     parameters.tpast = input_parameters["tpast"]
     parameters.dtout = input_parameters["dtout"]
@@ -141,7 +147,7 @@ def run(dict input_parameters):
     err = orbit(ngals, parameters, gal, output_snapshots)
 
     if (err > 0):
-        raise RuntimeError("Problem in integration.")
+        raise RuntimeError("Problem in integration. Error code: %d" % err)
 
     #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
     # Had a weird error with the string representation of the output
@@ -149,15 +155,20 @@ def run(dict input_parameters):
         _ = output_pos.__str__()
     except:
         pass
-    #free(gal)
+
     output = []
     for i in xrange(nsnaps):
         output.append([])
         for j in xrange(ngals):
             s = output_snapshots[i][j]
-            output[i].append({'name': s.name, 'pos': [p for p in s.pos],
+            output[i].append({'name': s.name,
+                              'stripped': s.stripped,
+                              'pos': [p for p in s.pos],
                               'vel': [v for v in s.vel], 't': s.t})
 
+    for i in range(nsnaps):
+        free(output_snapshots[i])
+    free(output_snapshots)
     return output
 
 
@@ -320,8 +331,7 @@ def likelihood2(np.ndarray[double, ndim=2, mode="c"] model_pos,
 
 def orbit_statistics(dict input_parameters,
                      str gal_name,
-                     str gal_name2,
-                     str output_file):
+                     str gal_name2):
 
     cdef list results
 
@@ -336,7 +346,8 @@ def orbit_statistics(dict input_parameters,
 
     cdef double ln_likelihood
     cdef int ngals = len(input_parameters['galaxies'])
-    cdef int nsnaps, g, g2
+    cdef int nsnaps, g, g2, s
+    cdef double d
 
     nsnaps = len(results)
     g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
@@ -346,13 +357,16 @@ def orbit_statistics(dict input_parameters,
                     (results[i][g]['pos'][1]-results[i][g2]['pos'][1])**2 +
                     (results[i][g]['pos'][2]-results[i][g2]['pos'][2])**2) for i in xrange(nsnaps)]
 
+    stripped = [results[i][g]['stripped'] for i in xrange(nsnaps)]
     old_dist = None
     direction = None
 
     cdef int apocenters = 0
     cdef int pericenters = 0
 
-    for d in dist:
+    for s, d in zip(stripped, dist):
+        if s == 1:
+            break  # if the galaxy becomes stirpped, stop
         if old_dist is not None:
             if direction is not None:
             # already have a direction set
@@ -372,7 +386,7 @@ def orbit_statistics(dict input_parameters,
                     direction = 0  # outward
         old_dist = d
 
-    return np.min(dist), np.max(dist), apocenters, pericenters
+    return np.min(dist), np.max(dist), apocenters, pericenters, any(stripped)
 
 
 
