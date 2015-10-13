@@ -7,7 +7,8 @@ sourcefiles = ['pyorbits.pyx', 'halo.c']
 ext_modules = [Extension("pyorbits",
                          sources=sourcefiles,
                          library_dirs = ['/usr/local/lib'],
-                         libraries = ['m', 'gslcblas', 'gsl']
+                         libraries = ['m', 'gslcblas', 'gsl'],
+                         extra_compile_args= ['-std=c99']
                          )]
 
 setup(

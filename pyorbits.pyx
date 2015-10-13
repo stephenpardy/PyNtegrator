@@ -3,7 +3,9 @@
 
 import numpy as np
 cimport numpy as np
+import random
 from libc.stdlib cimport malloc, free
+import copy
 
 
 cdef extern from 'orbit.c':
@@ -12,16 +14,21 @@ cdef extern from 'orbit.c':
               Gal *gal,
               Snapshot **output_snapshots)
 
-
 cdef extern from *:
-    struct Gal:
+
+    ctypedef struct Tracer:
+        int nparticles
+        double *pos
+        double *vel
+
+    ctypedef struct Gal:
         double pos[3]
         double vel[3]
         double post[3]
         double velt[3]
         int ID
         double mhalo
-        double minit
+        double mtidal
         double r_halo
         double gamma
         double a2_LMJ
@@ -29,7 +36,6 @@ cdef extern from *:
         double M2_LMJ
         double M1_LMJ
         double b1_LMJ
-        double c_halo
         int dyn_fric
         double dyn_C_eq
         double dyn_L_eq
@@ -40,12 +46,11 @@ cdef extern from *:
         int tidal_trunc
         int stripped
         double rt
-        int halo_type
         int inplace
+        Tracer test_particles
         char *name
 
-
-    struct Params:
+    ctypedef struct Params:
         double tpast
         double tfuture
         double dt0
@@ -53,8 +58,9 @@ cdef extern from *:
         int ngals
         char *outputdir
         int snapshot
+        int write_tracers
 
-    struct Snapshot:
+    ctypedef struct Snapshot:
         char *name
         int stripped
         double pos[3]
@@ -66,6 +72,7 @@ def run(dict input_parameters):
     cdef str param
     cdef dict galaxy
     cdef int i, n, j
+    TRACERS = False
     cdef Params parameters
     cdef Snapshot **output_snapshots
 
@@ -79,16 +86,14 @@ def run(dict input_parameters):
         for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
             gal[n].name = gal_name
             gal[n].mhalo = galaxy['mass']
-            gal[n].minit = galaxy['mass']
+            gal[n].mtidal = galaxy['mass']
             gal[n].r_halo = galaxy['rad']
             gal[n].gamma = galaxy['gamma']
-            gal[n].c_halo = galaxy['c']
             gal[n].a2_LMJ = galaxy['a2']
             gal[n].b2_LMJ = galaxy['b2']
             gal[n].M2_LMJ = galaxy['m2']
             gal[n].M1_LMJ = galaxy['m1']
             gal[n].b1_LMJ = galaxy['b1']
-            gal[n].halo_type = galaxy['type']
             gal[n].dyn_fric = galaxy['dynamical_friction']
             gal[n].inplace = galaxy['inplace']
             if galaxy['dynamical_friction'] == 1:
@@ -107,6 +112,16 @@ def run(dict input_parameters):
                 gal[n].vel[i] = galaxy['vel'][i]
                 gal[n].post[i] = galaxy['pos'][i]
                 gal[n].velt[i] = galaxy['vel'][i]
+
+            # TESTING tracers
+            if galaxy['tracers'] == 1:
+                TRACERS = True
+                gal[n].test_particles.nparticles = 1000
+                gal[n].test_particles.pos = <double *>malloc(sizeof(double) * 3* 1000)
+                gal[n].test_particles.vel = <double *>malloc(sizeof(double) * 3* 1000)
+            else:
+                gal[n].test_particles.nparticles = 0
+
     except KeyError, e:
         print('Missing parameter from galaxy %s' % gal[n].name)
         raise KeyError, e
@@ -117,16 +132,20 @@ def run(dict input_parameters):
     parameters.dt0 = input_parameters['dt0']
     parameters.ngals = ngals
     parameters.snapshot = input_parameters['save_snapshot']
-
     parameters.outputdir = input_parameters["outputdir"]
-
+    # only save test/tracer particles if there are any!
+    if TRACERS:
+        parameters.write_tracers = input_parameters["save_tracers"]
+    else:
+        parameters.write_tracers = 0
 
     cdef int nsnaps = 0
     if (parameters.tpast < 0.0):
         if (parameters.tfuture <= 0.0):
             nsnaps = int(parameters.tpast/(-1.0*parameters.dtout)+1)
         else:  # otherwise just save a snapshot at the end of the backward integration
-            nsnaps = int(parameters.tfuture/parameters.dtout+1)
+            nsnaps = int(parameters.tpast/(-1.0*parameters.dtout) +
+                         parameters.tfuture/parameters.dtout + 1)
 
         output_snapshots = <Snapshot **>malloc(sizeof(Snapshot *) * nsnaps)
         for i in range(nsnaps):
@@ -173,8 +192,8 @@ def run(dict input_parameters):
 
 
 def likelihood(int ngals,
-               np.ndarray[double, ndim=1, mode="c"] model_position,
-               np.ndarray[double, ndim=1, mode="c"] model_velocity,
+               np.ndarray[double, ndim=2, mode="c"] model_position,
+               np.ndarray[double, ndim=2, mode="c"] model_velocity,
                np.ndarray[double, ndim=2, mode="c"] data_position,
                np.ndarray[double, ndim=2, mode="c"] data_velocity,
                double error_pos,
@@ -184,13 +203,13 @@ def likelihood(int ngals,
 
     for i in xrange(ngals):
         # squared distance formula
-        dist2[i] = np.sum((model_position[i*3:(i+1)*3]-data_position[i, :])**2)
+        dist2[i] = np.sum((model_position[i, :]-data_position[i, :])**2)
 
     cdef np.ndarray[double, ndim=1, mode="c"] veldist2 = np.zeros(ngals)
 
     for i in xrange(ngals):
         # squared distance formula for velocities
-        veldist2[i] = np.sum((model_velocity[i*3:(i+1)*3]-data_velocity[i, :])**2)
+        veldist2[i] = np.sum((model_velocity[i, :]-data_velocity[i, :])**2)
 
 
     cdef double ln_likelihood_gal_pos = (ngals*np.log(1.0/np.sqrt(2.0*np.pi*error_pos**2)) +
@@ -205,44 +224,36 @@ def likelihood(int ngals,
     return ln_likelihood
 
 
-def test_location(dict input_parameters):
-    """
-    Test against the current location of galaxies.
-    Args:
-        dict input_parameters
-        See above
-    """
-    cdef list results
-    try:
-        results = run(input_parameters)
-    except RuntimeError, e:
-        print({"Runtime Error: {:s}".format(e)})
-        return None
-    except KeyError, e:
-        print("Problem in initial conditions. Missing parameter {:s}".format(e))
-        return None
+def likelihood2(np.ndarray[double, ndim=2, mode="c"] model_pos,
+                np.ndarray[double, ndim=2, mode="c"] data_pos,
+                double error_pos):
+    cdef int i
 
-    cdef int ngals = len(input_parameters['galaxies'])
-    cdef double ln_likelihood
+    cdef double Small = 1e-5
 
-    model_pos = np.array([results[-1][i]['pos'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
+    cdef int n_model = model_pos.shape[0]
+    cdef int n_data = data_pos.shape[0]
 
-    model_vel = np.array([results[-1][i]['vel'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
+    cdef double ln_likelihood_pos = 0.0
+    #cdef double ln_likelihood_vel = 0.0
 
-    ln_likelihood = likelihood(ngals,
-                               model_pos,
-                               model_vel,
-                               input_parameters['pos'],
-                               input_parameters['vel'],
-                               input_parameters['pos_err'],
-                               input_parameters['vel_err'])
+    for i in xrange(n_data):
+        # Don't add in any NaN values
+        if (any(model_pos[i, :] != model_pos[i, :])) or (any(data_pos[i, :] != data_pos[i, :])):
+            continue
+        ln_likelihood_pos += np.log(1.0/n_model*np.sum(np.exp(-0.5*((model_pos[:, 0]-data_pos[i, 0])**2 +
+                                                                    (model_pos[:, 1]-data_pos[i, 1])**2 +
+                                                                    (model_pos[:, 2]-data_pos[i, 2])**2)/
+                                                                    error_pos**2)+Small))
+
+         #   ln_likelihood_vel += np.log(1.0/n_model*np.sum(np.exp(-0.5*((model_vel[j, 0]-data_vel[i, 0])**2 +
+         #                                                               (model_vel[j, 1]-data_vel[i, 1])**2 +
+         #                                                               (model_vel[j, 2]-data_vel[i, 2])**2)/
+         #                                                               error_vel**2)+Small))
+
+    cdef double ln_likelihood = (ln_likelihood_pos) #+
+                                # ln_likelihood_vel)
     return ln_likelihood
-
-
 
 
 def test_orbit(dict input_parameters,
@@ -292,40 +303,48 @@ def test_orbit(dict input_parameters,
     return ln_likelihood
 
 
+def test_location(dict input_parameters):
+    """
+    Test against the current location of galaxies.
+    Args:
+        dict input_parameters
+        See above
+    """
+    cdef list results
+    try:
+        results = run(input_parameters)
+    except RuntimeError, e:
+        print({"Runtime Error: {:s}".format(e)})
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
+    cdef int ngals = len(input_parameters['galaxies'])
+    cdef double ln_likelihood
+
+    model_pos = np.array([results[-1][i]['pos'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
+
+    model_vel = np.array([results[-1][i]['vel'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
 
 
+    data_pos = np.empty((ngals, 3))
+    data_vel = np.empty((ngals, 3))
+    for i, (galname, gal) in enumerate(input_parameters['galaxies'].iteritems()):
+        data_pos[i, :] = gal['pos']
+        data_vel[i, :] = gal['vel']
 
-
-
-def likelihood2(np.ndarray[double, ndim=2, mode="c"] model_pos,
-                np.ndarray[double, ndim=2, mode="c"] data_pos,
-                double error_pos):
-    cdef int i
-
-    cdef double Small = 1e-5
-
-    cdef int n_model = model_pos.shape[0]
-    cdef int n_data = data_pos.shape[0]
-
-    cdef double ln_likelihood_pos = 0.0
-   # cdef double ln_likelihood_vel = 0.0
-
-    for i in xrange(n_model):
-        # Don't add in any NaN values
-        if (any(model_pos[i, :] != model_pos[i, :])) or (any(data_pos[i, :] != data_pos[i, :])):
-            continue
-        ln_likelihood_pos += np.log(1.0/n_model*np.sum(np.exp(-0.5*((model_pos[:, 0]-data_pos[i, 0])**2 +
-                                                                    (model_pos[:, 1]-data_pos[i, 1])**2 +
-                                                                    (model_pos[:, 2]-data_pos[i, 2])**2)/
-                                                                    error_pos**2)+Small))
-
-         #   ln_likelihood_vel += np.log(1.0/n_model*np.sum(np.exp(-0.5*((model_vel[j, 0]-data_vel[i, 0])**2 +
-         #                                                               (model_vel[j, 1]-data_vel[i, 1])**2 +
-         #                                                               (model_vel[j, 2]-data_vel[i, 2])**2)/
-         #                                                               error_vel**2)+Small))
-
-    cdef double ln_likelihood = (ln_likelihood_pos) #+
-                                # ln_likelihood_vel)
+    ln_likelihood = likelihood(ngals,
+                               model_pos,
+                               model_vel,
+                               input_parameters['pos'],
+                               input_parameters['vel'],
+                               input_parameters['pos_err'],
+                               input_parameters['vel_err'])
     return ln_likelihood
 
 
@@ -344,8 +363,74 @@ def orbit_statistics(dict input_parameters,
         print("Problem in initial conditions. Missing parameter {:s}".format(e))
         return None
 
-    cdef double ln_likelihood
+    return test_orbit_statistics(results, len(input_parameters['galaxies']), gal_name, gal_name2)
+
+
+def test_stream(dict input_parameters,
+                np.ndarray[double, ndim=2, mode="c"] input_position):
+
+    cdef list results
+
+    try:
+        results = run(input_parameters)
+    except RuntimeError, e:
+        print("Runtime Error: {:s}".format(e))
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
+    mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
+                                                                    len(input_parameters['galaxies']),
+                                                                    "MW", "LMC")
+
+    if (peris != 2):
+        return -1e+5
+
+    cdef double ln_likelihood = 0.0
     cdef int ngals = len(input_parameters['galaxies'])
+
+    model_pos = np.array([results[-1][i]['pos'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
+
+    model_vel = np.array([results[-1][i]['vel'][j]
+                          for i in xrange(ngals)
+                          for j in xrange(3)])
+
+    data_pos = np.empty((ngals, 3))
+    data_vel = np.empty((ngals, 3))
+    for i, (galname, gal) in enumerate(input_parameters['galaxies'].iteritems()):
+        data_pos[i, :] = gal['pos']
+        data_vel[i, :] = gal['vel']
+
+    ln_likelihood += likelihood(ngals,
+                                model_pos,
+                                model_vel,
+                                input_parameters['pos'],
+                                input_parameters['vel'],
+                                input_parameters['pos_err'],
+                                input_parameters['vel_err'])
+
+    #model_pos = np.zeros((1000, 3))
+    #for i in xrange(1000):
+    #    for j in xrange(3):
+    #        model_pos[i, j] =
+    # convert x, y, z to l,b
+
+    #ln_likelihood += likelihood2(model_pos,
+    #                             input_position,
+    #                             input_parameters['pos_err'])
+
+    return ln_likelihood
+
+
+def test_orbit_statistics(list results,
+                          int ngals,
+                          str gal_name,
+                          str gal_name2):
+
+    cdef double ln_likelihood
     cdef int nsnaps, g, g2, s
     cdef double d
 
@@ -357,7 +442,7 @@ def orbit_statistics(dict input_parameters,
                     (results[i][g]['pos'][1]-results[i][g2]['pos'][1])**2 +
                     (results[i][g]['pos'][2]-results[i][g2]['pos'][2])**2) for i in xrange(nsnaps)]
 
-    stripped = [results[i][g]['stripped'] for i in xrange(nsnaps)]
+    stripped = [results[i][g2]['stripped'] for i in xrange(nsnaps)]
     old_dist = None
     direction = None
 
@@ -388,57 +473,3 @@ def orbit_statistics(dict input_parameters,
 
     return np.min(dist), np.max(dist), apocenters, pericenters, any(stripped)
 
-
-
-# On hold until we add tracer particles
-#    cdef int i
-#    cdef double chi2 = 0.0
-#
-#    cdef double sigma_x2 = sigma_x**2
-#    cdef double sigma_v2 = sigma_v**2
-#    cdef double sigma_vx2 = sigma_vx**2
-#    cdef double sigma_mu2 = sigma_mu**2
-#    cdef int nr_OD = n_OD.shape[0]
-#    cdef int nr_VR = n_VR.shape[0]
-#    cdef double sigma_OD[nr_OD]
-#    cdef double normvel[nr_VR]
-#
-#    cdef double dl, db, dl2, db2, dvx, dvx2
-#    dl = np.sqrt(0.125*0.125+sigma_x2)
-#    db = sqrt(0.125*0.125+sigma_x2)
-#    dvx = sqrt(0.125*0.125+sigma_vx2)
-#    dl2 = dl**2  # squared values
-#    db2 = db**2
-#    dvx2 = dvx**2
-#
-#    sigma_OD[:] =  sigma_x2+n_OD[:, 4]**2/(8.0*np.log(2.0))  # //squared values of sigma_x plus sigma_obs
-#
-#    for i in xrange(N):
-#        normvel[:] += np.exp(-0.5*((star[i, 0]-n_VR[:, 4])**2/dvx2 +
-#                                    (star[i, 1]-n_VR[:, 3])**2/dvx2 +
-#                                    (star[i, 2]-n_VR[:, 0])**2/(n_VR[:, 1]**2+sigma_v2) +
-#                                    (star[i, 3]-n_VR[:, 6])**2/(n_VR[:, 8]**2+sigma_mu2) +
-#                                    (star[i, 4]-n_VR[:, 7])**2/(n_VR[:, 9]**2+sigma_mu2)))
-#
-#        #  overdensities
-#        n_OD[:, 2] +=  np.exp(-0.5*((star[i, 0]-n_OD[:, 0])**2/sigma_OD[:] +
-#                                     (star[i, 1]-n_OD[:, 1])**2/sigma_OD[:]))
-#
-#
-#    # normalization velocities
-#    for i in xrange(nr_VR):
-#        normvel[5] *= (1.0/(1.0*N*dvx2*sqrt(n_VR[i, 1]**2+sigma_v2)
-#                            *np.sqrt(n_VR[i, 8]**2+sigma_mu2)
-#                            *np.sqrt(n_VR[i, 9]**2sigma_mu2)))
-#
-#
-#    #normalization overdensities
-#    n_OD[:, 2] *=  (1.0/(1.0*N*sigma_OD[:]))
-#
-#
-#    #construction of final likelihood value
-#
-#    chi2 += np.sum(n_OD[:, 3]*np.log(n_OD[:, 2]+SMALL))
-#    chi2 += np.sum(np.log(normvel[:]+SMALL))
-#
-#    return chi2
