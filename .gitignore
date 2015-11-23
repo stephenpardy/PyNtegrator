@@ -33,18 +33,4 @@ data/
 
 *.so
 
-emcee/utils.pyc
-
-emcee/sampler.pyc
-
-emcee/ptsampler.pyc
-
-emcee/mh.pyc
-
-emcee/ensemble.pyc
-
-emcee/__init__.pyc
-
-build/temp.macosx-10.9-x86_64-2.7/orbit.o
-
-_orbit.so
+output*/
