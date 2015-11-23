@@ -262,7 +262,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, struc
 
 
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, struct Params parameters){
-    
+
     int i;
     int err = 0;
     double r;
@@ -349,8 +349,7 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
                                          gal[i].dyn_L_eq, gal[i].dyn_C_eq, gal[i].dyn_alpha_eq,
                                          gal[i].dyn_L_uneq, gal[i].dyn_C_uneq, gal[i].dyn_alpha_uneq,
                                          gal[gal_num].mhalo, gal[gal_num].r_halo);
-            
-                   
+
             }
         }
     }
@@ -387,27 +386,10 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
             dyn_L = dyn_L_eq;
             dyn_C = dyn_C_eq;
             dyn_alpha = dyn_alpha_eq;
-            //dyn_L = 0.02;
-            //dyn_L = 0.0;
-            //dyn_C = 1.0;
-            //dyn_C = 0.17;
-           // dyn_alpha = 0.15;
-            //dyn_alpha = 2.5;
         } else {
             dyn_L = dyn_L_uneq;
             dyn_C = dyn_C_uneq;
             dyn_alpha = dyn_alpha_uneq;
-            //Test against gadget
-            //dyn_L = 0.0;
-            //dyn_C = 0.1;
-            //dyn_alpha = 3.5;
-            //van der Marel 2012
-            //dyn_C =  1.22;
-            //dyn_alpha = 1.0;
-            //K+13 below
-            //dyn_L = 0.0;
-           // dyn_C = 1.6*3.0/r_gal;  // based off K+13 etc.
-           // dyn_alpha = 1.0;
         }
         coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
                                     dyn_alpha));
@@ -464,7 +446,7 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     return 0;
 }
 
-double tidal_condition (double x, void * params)
+double tidal_condition(double x, void * params)
 {
     double *p = (double *)params;
     double MD, MG;
@@ -513,12 +495,11 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
       return -1.0; // GSL reports non-zero error codes
   }
 
-  
   do
     {
       iter++;
       status = gsl_min_fminimizer_iterate (s);
-        
+
       if (status) {
           break;
       }
@@ -526,11 +507,9 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
       m = gsl_min_fminimizer_x_minimum (s);
       a = gsl_min_fminimizer_x_lower (s);
       b = gsl_min_fminimizer_x_upper (s);
-    
 
-      status 
+      status
         = gsl_min_test_interval (a, b, 0.001, 0.001);
-    
 
     }
   while (status == GSL_CONTINUE && iter < max_iter);
