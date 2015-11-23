@@ -47,7 +47,6 @@ int orbit(int ngals,
     double sign, tmax, dtoutt, t;
     int err = 0;
     int RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS;
-    srand(100);
     if (tpast < 0.0) {
         sign = -1.0;
         tmax = tpast;
@@ -87,11 +86,12 @@ int orbit(int ngals,
                       RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS);
     }
 
-    free(gal);
+    //free(gal);
     return err;
 }
 
-void init_tracers(Gal gal, int ngals){
+void init_tracers(struct Gal *gal, int ngals){
+srand(100);
 for (int n=0; n<ngals; n++){
     if (gal[n].test_particles.nparticles > 0){
         for (int i=0; i<1000; i++){
@@ -110,10 +110,10 @@ int rk4_drv(double *t,
             double dtout,
             double dt0,
             double mdiff,
-            Gal *gal,
-            Params parameters,
+            struct Gal *gal,
+            struct Params parameters,
             double sign,
-            Snapshot **output_snapshots,
+            struct Snapshot **output_snapshots,
             int RECORD_SNAP,
             int WRITE_SNAP,
             int WRITE_TRACERS){
@@ -293,7 +293,7 @@ int rk4_drv(double *t,
 
 
 /* ---------- advancement ---------- */
-int do_step(double dt, double *x, double *v, int gal_num, Gal *gal, int ngals) {
+int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals) {
 	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 	int k;
 
@@ -328,7 +328,7 @@ int do_step(double dt, double *x, double *v, int gal_num, Gal *gal, int ngals) {
 
 
 /* ---------- advancement of test particles ---------- */
-int do_step_tracers(double dt, Tracer *test_particles, Gal *gal, int ngals) {
+int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, int ngals) {
     double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 
     hh = dt*0.5;
@@ -368,7 +368,7 @@ int do_step_tracers(double dt, Tracer *test_particles, Gal *gal, int ngals) {
     return err;
 }
 
-int getforce_gals(double *x, double *v, double *a, int gal_num, Gal *gal, int ngals){
+int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals){
 
     int i;
     int err = 0;
@@ -460,7 +460,7 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, Gal *gal, int ng
     return err;
 }
 
-int getforce_tracers(double *x, double *v, double *a, Gal *gal, int ngals){
+int getforce_tracers(double *x, double *v, double *a, struct Gal *gal, int ngals){
 
     int i;
     int err = 0;
@@ -535,7 +535,7 @@ int getforce_tracers(double *x, double *v, double *a, Gal *gal, int ngals){
 // Calculate Dynamical Friction acceleration
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                        double *ax, double *ay, double *az,  // accelerations update in function
-                       Gal gal,
+                       struct Gal gal,
                        double m_gal, double r_gal){  // companion mass and scale length
     double sigma,density;
     double dyn_L, dyn_C, dyn_alpha;
@@ -571,6 +571,9 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     } else {
         sigma = halo_sigma(r, gal);
     }
+    if (sigma < 0){
+        return 1;
+    }
     sigma = 3.0*sqrt(sigma);
 
     //halo_sigma_old(r, gal, &sigma);
@@ -605,7 +608,7 @@ double tidal_condition(double x, void *params)
 }
 
 
-double calc_rt(double r, double rt, Gal galG, Gal galD)
+double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
 {
     int status;
     int iter = 0, max_iter = 100;
@@ -655,7 +658,7 @@ double calc_rt(double r, double rt, Gal galG, Gal galD)
 }
 
 
-void write_snapshot(Params parameters, Gal *gal, double t, int snapnumber){
+void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
     int n;
     int ngals = parameters.ngals;
     char *folder = parameters.outputdir;
@@ -684,7 +687,7 @@ void write_snapshot(Params parameters, Gal *gal, double t, int snapnumber){
 }
 
 
-void record_snapshot(int ngals, Gal *gal, double t, int snapnumber, Snapshot **output_snapshot){
+void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot){
     int n, i;
     for (n=0; n<ngals; n++){
         output_snapshot[snapnumber][n].name = gal[n].name;
@@ -697,7 +700,7 @@ void record_snapshot(int ngals, Gal *gal, double t, int snapnumber, Snapshot **o
     }
 }
 
-void write_tracers(Params parameters, Gal *gal, double t, int snapnumber){
+void write_tracers(struct Params parameters, struct Gal *gal, double t, int snapnumber){
     int ngals = parameters.ngals;
     char *folder = parameters.outputdir;
     FILE *snapfile;

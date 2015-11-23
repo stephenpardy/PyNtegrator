@@ -11,21 +11,19 @@
 #define SMALL 1.0E-5
 #define SUPERSMALL -1.E50
 
-typedef struct  // Tracer - tracer/test particles
+struct  Tracer // Tracer - tracer/test particles
 {
     int nparticles;
     double *pos;
     double *vel;
-} Tracer;
+};
 
-typedef struct // Gal - companion galaxies
+struct Gal // Gal - companion galaxies
 {
     double pos[3];
     double vel[3];
     double post[3]; // temp positions during timestep check
     double velt[3]; // temp velocities during timestep check
-
-
     double mhalo;
     double mtidal;
     double r_halo;
@@ -46,20 +44,20 @@ typedef struct // Gal - companion galaxies
     int stripped;
     double rt;
     int inplace;
-    Tracer test_particles;
+    struct Tracer test_particles;
     char *name;
-} Gal;
+};
 
-typedef struct // Snapshot - snapshots to save
+struct Snapshot // Snapshot - snapshots to save
 {
     char *name;
     int stripped;
     double pos[3];
     double vel[3];
     double t;
-} Snapshot;
+};
 
-typdef struct //Params - orbital parameters
+struct Params //Params - orbital parameters
 {
     double tpast;
     double tfuture;
@@ -69,7 +67,7 @@ typdef struct //Params - orbital parameters
     char *outputdir; //outputfolder
     int snapshot; // save snapshots to disk
     int write_tracers; // save tracer/test particles to disk
-}Params;
+};
 
 //functions
 
@@ -91,16 +89,18 @@ int rk4_drv(double *t,
             int WRITE_SNAP,
             int WRITE_TRACERS);
 
+void init_tracers(struct Gal *gal, int ngals);
+
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals);
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals);
 
-int do_step_tracers(double dt, Tracer *test_particles, struct Gal *gal, int ngals);
+int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, int ngals);
 int getforce_tracers(double *x, double *v, double *a, struct Gal *gal, int ngals);
 
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
-                        double *ax, double *ay, double *az,  // accelerations update in function
-                        struct Gal gal,
-                        double m_gal, double r_gal);  // companion mass and friction
+                       double *ax, double *ay, double *az,  // accelerations update in function
+                       struct Gal gal,
+                       double m_gal, double r_gal);  // companion mass and friction
 double halo_acc(double r, struct Gal gal, double x, double x0);
 double halo_sigma_old(double r, struct Gal gal);
 double halo_density(double r, struct Gal gal);
@@ -125,3 +125,8 @@ double calc_rt(double r, // distance
 double binding_energy(struct Gal gal);
 double binding_t(double x, void *param);
 double binding_w(double x, void *param);
+
+void custom_gsl_error_handler(const char * reason,
+                              const char * file,
+                              int line,
+                              int gsl_errno);

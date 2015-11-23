@@ -16,17 +16,16 @@ cdef extern from 'orbit.c':
 
 cdef extern from *:
 
-    ctypedef struct Tracer:
+    struct Tracer:
         int nparticles
         double *pos
         double *vel
 
-    ctypedef struct Gal:
+    struct Gal:
         double pos[3]
         double vel[3]
         double post[3]
         double velt[3]
-        int ID
         double mhalo
         double mtidal
         double r_halo
@@ -50,7 +49,7 @@ cdef extern from *:
         Tracer test_particles
         char *name
 
-    ctypedef struct Params:
+    struct Params:
         double tpast
         double tfuture
         double dt0
@@ -60,7 +59,7 @@ cdef extern from *:
         int snapshot
         int write_tracers
 
-    ctypedef struct Snapshot:
+    struct Snapshot:
         char *name
         int stripped
         double pos[3]
@@ -79,9 +78,10 @@ def run(dict input_parameters):
     if 'galaxies' not in input_parameters.keys():
         raise ValueError("Must define galaxies to integrate.")
 
+    #Initialize gal array
     cdef int ngals = len(input_parameters['galaxies'])
     cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
-
+    #Read galaxy parameters
     try:
         for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
             gal[n].name = gal_name
@@ -125,7 +125,7 @@ def run(dict input_parameters):
     except KeyError, e:
         print('Missing parameter from galaxy %s' % gal[n].name)
         raise KeyError, e
-    # Read parameters
+    # Read integration parameters
     parameters.tpast = input_parameters["tpast"]
     parameters.dtout = input_parameters["dtout"]
     parameters.tfuture = input_parameters["tfuture"]
@@ -136,9 +136,12 @@ def run(dict input_parameters):
     # only save test/tracer particles if there are any!
     if TRACERS:
         parameters.write_tracers = input_parameters["save_tracers"]
+        output_tracers = input_parameters["output_tracers"]
     else:
         parameters.write_tracers = 0
+        output_tracers = 0
 
+    #Initialize output arrays based on whether we want to integrate forward to backward
     cdef int nsnaps = 0
     if (parameters.tpast < 0.0):
         if (parameters.tfuture <= 0.0):
@@ -151,30 +154,19 @@ def run(dict input_parameters):
         for i in range(nsnaps):
             output_snapshots[i] = <Snapshot *>malloc(sizeof(Snapshot) * ngals)
 
-
-    if (parameters.tfuture > 0.0):
+    elif (parameters.tfuture > 0.0):
         if (nsnaps == 0):
             nsnaps = int(parameters.tfuture/parameters.dtout + 1)
             output_snapshots = <Snapshot **>malloc(sizeof(Snapshot *) * nsnaps)
             for i in range(nsnaps):
                 output_snapshots[i] = <Snapshot *>malloc(sizeof(Snapshot) * ngals)
 
-
-    cdef np.ndarray[double, ndim=1, mode="c"] output_pos = np.zeros(3*ngals)
-    cdef np.ndarray[double, ndim=1, mode="c"] output_vel = np.zeros(3*ngals)
-
     err = orbit(ngals, parameters, gal, output_snapshots)
 
     if (err > 0):
         raise RuntimeError("Problem in integration. Error code: %d" % err)
 
-    #err = orbit(mode, ngals, input_parameters, &output_pos[0], &output_vel[0])
-    # Had a weird error with the string representation of the output
-    try:
-        _ = output_pos.__str__()
-    except:
-        pass
-
+    #Generate an array of galaxy snapshots
     output = []
     for i in xrange(nsnaps):
         output.append([])
@@ -185,10 +177,34 @@ def run(dict input_parameters):
                               'pos': [p for p in s.pos],
                               'vel': [v for v in s.vel], 't': s.t})
 
+    # If we want to output final position of tracers then make that array
+
+    tracers = None
+    for i in xrange(ngals):
+        npart = gal[i].test_particles.nparticles
+        if (npart > 0):
+            tracers_temp = np.empty((npart, 3))
+        else:
+            continue
+        for j in xrange(npart):
+            for k in  xrange(3):
+                tracers_temp[j, k] = gal[i].test_particles.pos[j*3+k]
+        if (tracers is None):
+            tracers = tracers_temp
+        else:
+            tracers = np.concatenate((tracers, tracers_temp), axis=0)
+
+    #Free now that we are done with these
     for i in range(nsnaps):
         free(output_snapshots[i])
     free(output_snapshots)
-    return output
+    free(gal)
+
+    if output_tracers:
+        return output, tracers
+    # Just output the galaxy positions
+    else:
+        return output
 
 
 def likelihood(int ngals,
@@ -323,14 +339,11 @@ def test_location(dict input_parameters):
     cdef int ngals = len(input_parameters['galaxies'])
     cdef double ln_likelihood
 
-    model_pos = np.array([results[-1][i]['pos'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
-
-    model_vel = np.array([results[-1][i]['vel'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
-
+    model_pos = np.empty((ngals, 3))
+    model_vel = np.empty((ngals, 3))
+    for i, gal in enumerate(results[-1]):
+        model_pos[i, :] = gal['pos']
+        model_vel[i, :] = gal['vel']
 
     data_pos = np.empty((ngals, 3))
     data_vel = np.empty((ngals, 3))
@@ -338,11 +351,12 @@ def test_location(dict input_parameters):
         data_pos[i, :] = gal['pos']
         data_vel[i, :] = gal['vel']
 
+
     ln_likelihood = likelihood(ngals,
                                model_pos,
                                model_vel,
-                               input_parameters['pos'],
-                               input_parameters['vel'],
+                               data_pos,
+                               data_vel,
                                input_parameters['pos_err'],
                                input_parameters['vel_err'])
     return ln_likelihood
@@ -367,12 +381,18 @@ def orbit_statistics(dict input_parameters,
 
 
 def test_stream(dict input_parameters,
-                np.ndarray[double, ndim=2, mode="c"] input_position):
+                np.ndarray[double, ndim=2, mode="c"] input_position,
+                bint use_tracers):
+
+    from astropy.coordinates import SkyCoord # High-level coordinates
+    import astropy.coordinates as coord
 
     cdef list results
-
     try:
-        results = run(input_parameters)
+        if use_tracers:
+            results, tracers = run(input_parameters)
+        else:
+            results = run(input_parameters)
     except RuntimeError, e:
         print("Runtime Error: {:s}".format(e))
         return None
@@ -382,21 +402,28 @@ def test_stream(dict input_parameters,
 
     mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
                                                                     len(input_parameters['galaxies']),
-                                                                    "MW", "LMC")
+                                                                    "MW", "LMC",
+                                                                    min_time=-6.0)
 
-    if (peris != 2):
-        return -1e+5
+    # Must be a second passage model
+    if (peris < 2):
+        print "Pericenters: ", peris
+        return np.NINF
+
+    #Check that the maxdistance is greater than rvir, this ensures that we have entered the system with the last 6Gyr
+    cdef float rvir = 300.0
+    if (maxdist <= rvir):
+        print "Maxdist: ", maxdist
+        return np.NINF
 
     cdef double ln_likelihood = 0.0
     cdef int ngals = len(input_parameters['galaxies'])
 
-    model_pos = np.array([results[-1][i]['pos'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
-
-    model_vel = np.array([results[-1][i]['vel'][j]
-                          for i in xrange(ngals)
-                          for j in xrange(3)])
+    model_pos = np.empty((ngals, 3))
+    model_vel = np.empty((ngals, 3))
+    for i, gal in enumerate(results[-1]):
+        model_pos[i, :] = gal['pos']
+        model_vel[i, :] = gal['vel']
 
     data_pos = np.empty((ngals, 3))
     data_vel = np.empty((ngals, 3))
@@ -407,20 +434,27 @@ def test_stream(dict input_parameters,
     ln_likelihood += likelihood(ngals,
                                 model_pos,
                                 model_vel,
-                                input_parameters['pos'],
-                                input_parameters['vel'],
+                                data_pos,
+                                data_vel,
                                 input_parameters['pos_err'],
                                 input_parameters['vel_err'])
 
-    #model_pos = np.zeros((1000, 3))
-    #for i in xrange(1000):
-    #    for j in xrange(3):
-    #        model_pos[i, j] =
-    # convert x, y, z to l,b
 
-    #ln_likelihood += likelihood2(model_pos,
-    #                             input_position,
-    #                             input_parameters['pos_err'])
+    g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
+    model_pos = np.zeros((len(results), 3))
+    for r in results:
+        c = SkyCoord(w=r[g2]['pos'][0]-r[g]['pos'][0],
+                     u=r[g2]['pos'][1]-r[g]['pos'][1],
+                     v=r[g2]['pos'][2]-r[g]['pos'][2], unit='kpc',
+                     frame='galactic', representation='cartesian')
+        coords = c.transform_to(coord.Galactic)
+        model_pos[i, 0] = coords.l.value
+        model_pos[i, 1] = coords.b.value
+#
+    ln_likelihood += likelihood2(model_pos,
+                                 input_position,
+                                 input_parameters['pos_err'])
 
     return ln_likelihood
 
@@ -428,7 +462,9 @@ def test_stream(dict input_parameters,
 def test_orbit_statistics(list results,
                           int ngals,
                           str gal_name,
-                          str gal_name2):
+                          str gal_name2,
+                          float max_time=1000,
+                          float min_time=-1000):
 
     cdef double ln_likelihood
     cdef int nsnaps, g, g2, s
@@ -437,21 +473,25 @@ def test_orbit_statistics(list results,
     nsnaps = len(results)
     g = np.where([results[0][i]['name'] == gal_name for i in xrange(ngals)])[0]
     g2 = np.where([results[0][i]['name'] == gal_name2 for i in xrange(ngals)])[0]
-
-    dist = [np.sqrt((results[i][g]['pos'][0]-results[i][g2]['pos'][0])**2 +
-                    (results[i][g]['pos'][1]-results[i][g2]['pos'][1])**2 +
-                    (results[i][g]['pos'][2]-results[i][g2]['pos'][2])**2) for i in xrange(nsnaps)]
-
-    stripped = [results[i][g2]['stripped'] for i in xrange(nsnaps)]
     old_dist = None
     direction = None
 
     cdef int apocenters = 0
     cdef int pericenters = 0
 
-    for s, d in zip(stripped, dist):
+    # Roll these together with the loop below
+    dist = np.array([np.sqrt((results[i][g]['pos'][0]-results[i][g2]['pos'][0])**2 +
+                    (results[i][g]['pos'][1]-results[i][g2]['pos'][1])**2 +
+                    (results[i][g]['pos'][2]-results[i][g2]['pos'][2])**2) for i in xrange(nsnaps)])
+
+    stripped = np.array([results[i][g2]['stripped'] for i in xrange(nsnaps)])
+    times = np.array([results[i][g2]['t'] for i in xrange(nsnaps)])
+
+    idx = (times > min_time)*(times < max_time)
+
+    for s, d in zip(stripped[idx], dist[idx]):
         if s == 1:
-            break  # if the galaxy becomes stirpped, stop
+            break  # if the galaxy becomes stripped, stop
         if old_dist is not None:
             if direction is not None:
             # already have a direction set

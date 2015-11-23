@@ -23,6 +23,7 @@ double sigma_term(double x, void *params){
 
 double halo_sigma(double r, struct Gal gal){
     // init
+    gsl_set_error_handler(&custom_gsl_error_handler);
     int WORKSIZE = 100000;
     gsl_function F;
     gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(WORKSIZE);
@@ -32,8 +33,10 @@ double halo_sigma(double r, struct Gal gal){
     F.function = &sigma_term;
     double result_s, abserr_s;
 
-    gsl_integration_qag(&F, r, 1e3, 0.0, 1.0e-4, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_s, &abserr_s);
-
+    int status = gsl_integration_qag(&F, r, 1e3, 0.0, 1.0e-4, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_s, &abserr_s);
+    if (status){
+        return -1.0;
+    }
     //Free integration space
     gsl_integration_workspace_free(workspace);
 
@@ -53,6 +56,7 @@ double sigma_term_trunc(double x, void *params){
 
 double halo_sigma_trunc(double r, struct Gal gal){
     // init
+    gsl_set_error_handler(&custom_gsl_error_handler);
     int WORKSIZE = 100000;
     gsl_function F;
     gsl_integration_workspace *workspace = gsl_integration_workspace_alloc(WORKSIZE);
@@ -62,8 +66,10 @@ double halo_sigma_trunc(double r, struct Gal gal){
     F.function = &sigma_term_trunc;
     double result_s, abserr_s;
 
-    gsl_integration_qag(&F, r, 1e3, 0.0, 1.0e-4, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_s, &abserr_s);
-
+    int status = gsl_integration_qag(&F, r, 1e3, 0.0, 1.0e-4, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_s, &abserr_s);
+    if (status){
+        return -1.0;
+    }
     //Free integration space
     gsl_integration_workspace_free(workspace);
 
@@ -113,6 +119,8 @@ double binding_t(double x, void *params){
 
 double binding_energy(struct Gal gal){
     // init
+    gsl_set_error_handler(&custom_gsl_error_handler);
+
     int WORKSIZE = 100000;
     double W, T;
     gsl_function F;
@@ -123,14 +131,18 @@ double binding_energy(struct Gal gal){
     F.function = &binding_w;
     double result_w, abserr_w;
 
-    gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_w, &abserr_w);
-
+    int status = gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_w, &abserr_w);
+    if (status){
+      return 1.0; // GSL reports non-zero error codes
+    }
     // Now integrate for T
     F.function = &binding_t;
     double result_t, abserr_t;
 
-    gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_t, &abserr_t);
-
+    status = gsl_integration_qag(&F, 0, gal.rt, 0, 1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result_t, &abserr_t);
+    if (status){
+      return 1.0; // GSL reports non-zero error codes
+    }
     //Free integration space
     gsl_integration_workspace_free(workspace);
 
