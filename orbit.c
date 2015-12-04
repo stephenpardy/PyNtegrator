@@ -571,9 +571,11 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     } else {
         sigma = halo_sigma(r, gal);
     }
+
     if (sigma < 0){
         return 1;
     }
+
     sigma = 3.0*sqrt(sigma);
 
     //halo_sigma_old(r, gal, &sigma);
