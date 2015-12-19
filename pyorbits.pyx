@@ -400,6 +400,8 @@ def test_stream(dict input_parameters,
         print("Problem in initial conditions. Missing parameter {:s}".format(e))
         return None
 
+    cdef float rvir = 300.0
+
     mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
                                                                     len(input_parameters['galaxies']),
                                                                     "MW", "LMC",
@@ -411,10 +413,22 @@ def test_stream(dict input_parameters,
         return np.NINF
 
     #Check that the maxdistance is greater than rvir, this ensures that we have entered the system with the last 6Gyr
-    cdef float rvir = 300.0
     if (maxdist <= rvir):
         print "Maxdist: ", maxdist
         return np.NINF
+
+    #Check that the maxdistance for the SMC is greater than rvir, this ensures that we have entered the system with the last 6Gyr
+
+    mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
+                                                                    len(input_parameters['galaxies']),
+                                                                    "MW", "SMC",
+                                                                    min_time=-6.0)
+
+    if (maxdist <= rvir):
+        print "Maxdist: ", maxdist
+        return np.NINF
+
+
 
     cdef double ln_likelihood = 0.0
     cdef int ngals = len(input_parameters['galaxies'])
@@ -439,23 +453,23 @@ def test_stream(dict input_parameters,
                                 input_parameters['pos_err'],
                                 input_parameters['vel_err'])
 
-
-    g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
-    g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
-    model_pos = np.zeros((len(results), 3))
-    for r in results:
-        c = SkyCoord(w=r[g2]['pos'][0]-r[g]['pos'][0],
-                     u=r[g2]['pos'][1]-r[g]['pos'][1],
-                     v=r[g2]['pos'][2]-r[g]['pos'][2], unit='kpc',
-                     frame='galactic', representation='cartesian')
-        coords = c.transform_to(coord.Galactic)
-        model_pos[i, 0] = coords.l.value
-        model_pos[i, 1] = coords.b.value
+    
+    #g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
+    #g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
+    #model_pos = np.zeros((len(results), 3))
+    #for r in results:
+    #    c = SkyCoord(w=r[g2]['pos'][0] - r[g]['pos'][0],
+    #                 u=r[g2]['pos'][1] - r[g]['pos'][1],
+    #                 v=r[g2]['pos'][2] - r[g]['pos'][2], unit='kpc',
+    #                 frame='galactic', representation='cartesian')
+    #    coords = c.transform_to(coord.Galactic)
+    #    model_pos[i, 0] = coords.l.value
+    #    model_pos[i, 1] = coords.b.value
 #
-    ln_likelihood += likelihood2(model_pos,
-                                 input_position,
-                                 input_parameters['pos_err'])
-
+    #ln_likelihood += likelihood2(model_pos,
+    #                             input_position,
+    #                             input_parameters['pos_err'])
+#
     return ln_likelihood
 
 
