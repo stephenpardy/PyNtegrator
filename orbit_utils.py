@@ -33,19 +33,19 @@ def printcol(*arg, **kwarg):
     Ncol = len(arg)
     Nrow = np.zeros(Ncol)
 
-    for i in range(Ncol):
+    for i in xrange(Ncol):
         Nrow[i] = len(arg[i])
 
     Nmax = int(np.max(Nrow))
 
     # Print
     print>>f, ("#"),
-    for i in range(len(names)):
+    for i in xrange(len(names)):
         print>>f, ("%s\t" % names[i]),
     print>>f, ("\n#\n"),
 
-    for i in range(Nmax):
-        for j in range(Ncol):
+    for i in xrange(Nmax):
+        for j in xrange(Ncol):
             if i < Nrow[j]:
                 print>>f, ('%g\t' % arg[j][i]),
             else:
@@ -73,7 +73,7 @@ def get_pool(mpi=False, threads=None):
     if mpi:
         from emcee.utils import MPIPool
 
-        # Initialize the MPI pool
+        # Initializeexit() the MPI pool
         pool = MPIPool()
 
         # Make sure the thread we're running on is the master

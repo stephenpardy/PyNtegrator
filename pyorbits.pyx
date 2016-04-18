@@ -27,7 +27,7 @@ cdef extern from *:
         double post[3]
         double velt[3]
         double mhalo
-        double mtidal
+        double minit
         double r_halo
         double gamma
         double a2_LMJ
@@ -36,6 +36,7 @@ cdef extern from *:
         double M1_LMJ
         double b1_LMJ
         int dyn_fric
+        int mass_growth
         double dyn_C_eq
         double dyn_L_eq
         double dyn_alpha_eq
@@ -58,6 +59,7 @@ cdef extern from *:
         char *outputdir
         int snapshot
         int write_tracers
+        int variabletimesteps
 
     struct Snapshot:
         char *name
@@ -86,7 +88,7 @@ def run(dict input_parameters):
         for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
             gal[n].name = gal_name
             gal[n].mhalo = galaxy['mass']
-            gal[n].mtidal = galaxy['mass']
+            gal[n].minit = galaxy['mass']
             gal[n].r_halo = galaxy['rad']
             gal[n].gamma = galaxy['gamma']
             gal[n].a2_LMJ = galaxy['a2']
@@ -95,6 +97,7 @@ def run(dict input_parameters):
             gal[n].M1_LMJ = galaxy['m1']
             gal[n].b1_LMJ = galaxy['b1']
             gal[n].dyn_fric = galaxy['dynamical_friction']
+            gal[n].mass_growth = galaxy['mass_growth']
             gal[n].inplace = galaxy['inplace']
             if galaxy['dynamical_friction'] == 1:
                 gal[n].dyn_C_eq = galaxy['dyn_C_eq']
@@ -105,7 +108,8 @@ def run(dict input_parameters):
                 gal[n].dyn_alpha_uneq = galaxy['dyn_alpha_uneq']
 
             gal[n].tidal_trunc = galaxy['tidal_truncation']
-            gal[n].rt = np.nan
+            gal[n].rt = galaxy['tidal_radius']
+
             gal[n].stripped = 0
             for i in range(3):
                 gal[n].pos[i] = galaxy['pos'][i]
@@ -133,6 +137,7 @@ def run(dict input_parameters):
     parameters.ngals = ngals
     parameters.snapshot = input_parameters['save_snapshot']
     parameters.outputdir = input_parameters["outputdir"]
+    parameters.variabletimesteps = input_parameters["variable_timesteps"]
     # only save test/tracer particles if there are any!
     if TRACERS:
         parameters.write_tracers = input_parameters["save_tracers"]
@@ -160,6 +165,8 @@ def run(dict input_parameters):
             output_snapshots = <Snapshot **>malloc(sizeof(Snapshot *) * nsnaps)
             for i in range(nsnaps):
                 output_snapshots[i] = <Snapshot *>malloc(sizeof(Snapshot) * ngals)
+    else:
+        raise RuntimeError("You must either set tpast < 0 or tfuture > 0")
 
     err = orbit(ngals, parameters, gal, output_snapshots)
 
@@ -178,7 +185,6 @@ def run(dict input_parameters):
                               'vel': [v for v in s.vel], 't': s.t})
 
     # If we want to output final position of tracers then make that array
-
     tracers = None
     for i in xrange(ngals):
         npart = gal[i].test_particles.nparticles
@@ -193,7 +199,6 @@ def run(dict input_parameters):
             tracers = tracers_temp
         else:
             tracers = np.concatenate((tracers, tracers_temp), axis=0)
-
     #Free now that we are done with these
     for i in range(nsnaps):
         free(output_snapshots[i])
@@ -400,7 +405,7 @@ def test_stream(dict input_parameters,
         print("Problem in initial conditions. Missing parameter {:s}".format(e))
         return None
 
-    cdef float rvir = 300.0
+    cdef float rvir = 200.0
 
     mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
                                                                     len(input_parameters['galaxies']),
@@ -414,24 +419,24 @@ def test_stream(dict input_parameters,
 
     #Check that the maxdistance is greater than rvir, this ensures that we have entered the system with the last 6Gyr
     if (maxdist <= rvir):
-        print "Maxdist: ", maxdist
+        print "LMC Maxdist: {:5.5f}, with {:d} pericenters".format(maxdist, peris)
         return np.NINF
-
-    #Check that the maxdistance for the SMC is greater than rvir, this ensures that we have entered the system with the last 6Gyr
 
     mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
                                                                     len(input_parameters['galaxies']),
-                                                                    "MW", "SMC",
-                                                                    min_time=-6.0)
+                                                                    "LMC", "SMC",
+                                                                    min_time=-2.0)
 
-    if (maxdist <= rvir):
-        print "Maxdist: ", maxdist
+
+    #Check that the two clouds have had a recent close encounter
+    if (mindist >= 10):
+        print "SMC mindist: ", mindist
         return np.NINF
-
-
 
     cdef double ln_likelihood = 0.0
     cdef int ngals = len(input_parameters['galaxies'])
+
+    #Test final position/velocity against starting position/velocity
 
     model_pos = np.empty((ngals, 3))
     model_vel = np.empty((ngals, 3))
@@ -450,26 +455,208 @@ def test_stream(dict input_parameters,
                                 model_vel,
                                 data_pos,
                                 data_vel,
-                                input_parameters['pos_err'],
-                                input_parameters['vel_err'])
+                                2,  # kpc pos err,
+                                5)  # kms vel err
 
-    
-    #g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
-    #g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
-    #model_pos = np.zeros((len(results), 3))
-    #for r in results:
-    #    c = SkyCoord(w=r[g2]['pos'][0] - r[g]['pos'][0],
-    #                 u=r[g2]['pos'][1] - r[g]['pos'][1],
-    #                 v=r[g2]['pos'][2] - r[g]['pos'][2], unit='kpc',
-    #                 frame='galactic', representation='cartesian')
-    #    coords = c.transform_to(coord.Galactic)
-    #    model_pos[i, 0] = coords.l.value
-    #    model_pos[i, 1] = coords.b.value
-#
-    #ln_likelihood += likelihood2(model_pos,
-    #                             input_position,
-    #                             input_parameters['pos_err'])
-#
+
+    #Test that the orbit roughly follows the current location of the MS
+
+    g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
+    model_pos = np.zeros((len(results), 3))
+    for r in results:
+        c = SkyCoord(w=r[g2]['pos'][0] - r[g]['pos'][0],
+                     u=r[g2]['pos'][1] - r[g]['pos'][1],
+                     v=r[g2]['pos'][2] - r[g]['pos'][2], unit='kpc',
+                     frame='galactic', representation='cartesian')
+        coords = c.transform_to(coord.Galactic)
+        model_pos[i, 0] = coords.l.value
+        model_pos[i, 1] = coords.b.value
+
+    ln_likelihood += likelihood2(model_pos,
+                                 input_position,
+                                 0.1)  # degrees pos error
+
+    return ln_likelihood
+
+
+def test_stream_1stpass(dict input_parameters,
+                np.ndarray[double, ndim=2, mode="c"] input_position,
+                bint use_tracers):
+
+    from astropy.coordinates import SkyCoord # High-level coordinates
+    import astropy.coordinates as coord
+
+    cdef list results
+    try:
+        if use_tracers:
+            results, tracers = run(input_parameters)
+        else:
+            results = run(input_parameters)
+    except RuntimeError, e:
+        print("Runtime Error: {:s}".format(e))
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
+    cdef float rvir = 300.0
+
+    mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
+                                                                    len(input_parameters['galaxies']),
+                                                                    "MW", "LMC",
+                                                                    min_time=-6.0)
+
+    # Must be a first passage model
+    if (peris > 1):
+        print "Pericenters: ", peris
+        return np.NINF
+
+    #Check that the maxdistance is greater than rvir, this ensures that we have entered the system with the last 6Gyr
+    if (maxdist <= rvir):
+        print "LMC Maxdist: ", maxdist
+        return np.NINF
+
+    mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
+                                                                    len(input_parameters['galaxies']),
+                                                                    "LMC", "SMC",
+                                                                    min_time=-2.0)
+
+
+    #Check that the two clouds have had a recent close encounter
+    if (mindist >= 10):
+        print "SMC mindist: ", mindist
+        return np.NINF
+
+    cdef double ln_likelihood = 0.0
+    cdef int ngals = len(input_parameters['galaxies'])
+
+    #Test final position/velocity against starting position/velocity
+
+    model_pos = np.empty((ngals, 3))
+    model_vel = np.empty((ngals, 3))
+    for i, gal in enumerate(results[-1]):
+        model_pos[i, :] = gal['pos']
+        model_vel[i, :] = gal['vel']
+
+    data_pos = np.empty((ngals, 3))
+    data_vel = np.empty((ngals, 3))
+    for i, (galname, gal) in enumerate(input_parameters['galaxies'].iteritems()):
+        data_pos[i, :] = gal['pos']
+        data_vel[i, :] = gal['vel']
+
+    ln_likelihood += likelihood(ngals,
+                                model_pos,
+                                model_vel,
+                                data_pos,
+                                data_vel,
+                                2,  # kpc pos err,
+                                5)  # kms vel err
+
+
+    #Test that the orbit roughly follows the current location of the MS
+
+    g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
+    model_pos = np.zeros((len(results), 3))
+    for r in results:
+        c = SkyCoord(w=r[g2]['pos'][0] - r[g]['pos'][0],
+                     u=r[g2]['pos'][1] - r[g]['pos'][1],
+                     v=r[g2]['pos'][2] - r[g]['pos'][2], unit='kpc',
+                     frame='galactic', representation='cartesian')
+        coords = c.transform_to(coord.Galactic)
+        model_pos[i, 0] = coords.l.value
+        model_pos[i, 1] = coords.b.value
+
+    ln_likelihood += likelihood2(model_pos,
+                                 input_position,
+                                 0.1)  # degrees pos error
+
+    return ln_likelihood
+
+
+def test_stream_nosmc(dict input_parameters,
+                      np.ndarray[double, ndim=2, mode="c"] input_position,
+                      bint use_tracers):
+
+    from astropy.coordinates import SkyCoord # High-level coordinates
+    import astropy.coordinates as coord
+
+    cdef list results
+    try:
+        if use_tracers:
+            results, tracers = run(input_parameters)
+        else:
+            results = run(input_parameters)
+    except RuntimeError, e:
+        print("Runtime Error: {:s}".format(e))
+        return None
+    except KeyError, e:
+        print("Problem in initial conditions. Missing parameter {:s}".format(e))
+        return None
+
+    cdef float rvir = 300.0
+
+    mindist, maxdist, apos, peris, stripped = test_orbit_statistics(results,
+                                                                    len(input_parameters['galaxies']),
+                                                                    "MW", "LMC",
+                                                                    min_time=-6.0)
+
+    # Must be a second passage model
+    if (peris < 2):
+        print "Pericenters: ", peris
+        return np.NINF
+
+    #Check that the maxdistance is greater than rvir, this ensures that we have entered the system with the last 6Gyr
+    if (maxdist <= rvir):
+        print "LMC Maxdist: ", maxdist
+        return np.NINF
+
+
+    cdef double ln_likelihood = 0.0
+    cdef int ngals = len(input_parameters['galaxies'])
+
+    #Test final position/velocity against starting position/velocity
+
+    model_pos = np.empty((ngals, 3))
+    model_vel = np.empty((ngals, 3))
+    for i, gal in enumerate(results[-1]):
+        model_pos[i, :] = gal['pos']
+        model_vel[i, :] = gal['vel']
+
+    data_pos = np.empty((ngals, 3))
+    data_vel = np.empty((ngals, 3))
+    for i, (galname, gal) in enumerate(input_parameters['galaxies'].iteritems()):
+        data_pos[i, :] = gal['pos']
+        data_vel[i, :] = gal['vel']
+
+    ln_likelihood += likelihood(ngals,
+                                model_pos,
+                                model_vel,
+                                data_pos,
+                                data_vel,
+                                2,  # kpc pos err,
+                                5)  # kms vel err
+
+
+    #Test that the orbit roughly follows the current location of the MS
+
+    g = np.where([results[0][i]['name'] == "MW" for i in xrange(ngals)])[0]
+    g2 = np.where([results[0][i]['name'] == "LMC" for i in xrange(ngals)])[0]
+    model_pos = np.zeros((len(results), 3))
+    for r in results:
+        c = SkyCoord(w=r[g2]['pos'][0] - r[g]['pos'][0],
+                     u=r[g2]['pos'][1] - r[g]['pos'][1],
+                     v=r[g2]['pos'][2] - r[g]['pos'][2], unit='kpc',
+                     frame='galactic', representation='cartesian')
+        coords = c.transform_to(coord.Galactic)
+        model_pos[i, 0] = coords.l.value
+        model_pos[i, 1] = coords.b.value
+
+    ln_likelihood += likelihood2(model_pos,
+                                 input_position,
+                                 0.1)  # degrees pos error
+
     return ln_likelihood
 
 

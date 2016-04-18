@@ -25,7 +25,7 @@ struct Gal // Gal - companion galaxies
     double post[3]; // temp positions during timestep check
     double velt[3]; // temp velocities during timestep check
     double mhalo;
-    double mtidal;
+    double minit;
     double r_halo;
     double gamma;
     double a2_LMJ;
@@ -34,6 +34,7 @@ struct Gal // Gal - companion galaxies
     double M1_LMJ;
     double b1_LMJ;
     int dyn_fric;  // is dynamical friction turned on for this galaxy?
+    int mass_growth; // does this galaxy grow in mass over time?
     double dyn_C_eq;  // Equal mass terms
     double dyn_L_eq;
     double dyn_alpha_eq;
@@ -67,6 +68,7 @@ struct Params //Params - orbital parameters
     char *outputdir; //outputfolder
     int snapshot; // save snapshots to disk
     int write_tracers; // save tracer/test particles to disk
+    int variabletimesteps; // Use variable or fixed timesteps
 };
 
 //functions
@@ -85,6 +87,7 @@ int rk4_drv(double *t,
             struct Params parameters,
             double sign,
             struct Snapshot **output_snapshots,
+            int VARIABLE_TIMESTEPS,
             int RECORD_SNAP,
             int WRITE_SNAP,
             int WRITE_TRACERS);

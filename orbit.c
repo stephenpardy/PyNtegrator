@@ -8,6 +8,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <execinfo.h>
+#include <signal.h>
+
 
 //integration parameters
 double const tstart = 0.0;          //time at input of cluster coordinates [Gyr], usually today, i.e. 0.0
@@ -16,30 +19,31 @@ double const mdiff = 1.E-7;         //precission
 double const RMIN = 1e-4;         //Smallest allowed separation between galaxies (effectively a softening)
 double const dtmax = 0.025;          //maximum time-step [Gyr]
 
-int const VARIABLE_TIMESTEPS = 0;
-
 //currently does nothing
 void custom_gsl_error_handler(const char * reason,
                               const char * file,
                               int line,
                               int gsl_errno){
+
+    fprintf(stdout, "GSL Error %s Number: %d:\n", reason, gsl_errno);
+    fprintf(stdout, "Error occured in file %s at line %d\n", file, line);
+
     (void)reason;
     (void)file;
     (void)line;
 }
-
 
 int orbit(int ngals,
           struct Params parameters,
           struct Gal *gal,
           struct Snapshot **output_snapshots){
 
-
     int ratio;
     double tpast = parameters.tpast;  // add to orbit.h
     double tfuture = parameters.tfuture; // add to orbit.h
     double dt0 = parameters.dt0; // add to orbit.h
     double dtout = parameters.dtout;
+    int VARIABLE_TIMESTEPS = parameters.variabletimesteps;
     ratio = (int) 1.0*tpast/dtout;
     tpast = 1.0*ratio*dtout;
 
@@ -68,8 +72,11 @@ int orbit(int ngals,
 
         t = tstart;
         err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
-                      parameters, sign, output_snapshots,
+                      parameters, sign, output_snapshots, VARIABLE_TIMESTEPS,
                       RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS);
+        if (err > 0){
+            return err;
+        }
     }
     if (tfuture > 0.0) {
     //integrate cluster orbit forwards from t = -tint till t = tstart+tfuture
@@ -82,7 +89,7 @@ int orbit(int ngals,
         init_tracers(gal, ngals);
         tmax = tfuture;
         err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
-                      parameters, sign, output_snapshots,
+                      parameters, sign, output_snapshots, VARIABLE_TIMESTEPS,
                       RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS);
     }
 
@@ -114,6 +121,7 @@ int rk4_drv(double *t,
             struct Params parameters,
             double sign,
             struct Snapshot **output_snapshots,
+            int VARIABLE_TIMESTEPS,
             int RECORD_SNAP,
             int WRITE_SNAP,
             int WRITE_TRACERS){
@@ -122,6 +130,7 @@ int rk4_drv(double *t,
 	double xe1[3], ve1[3], difftemp;
         //double rt = 1e+5;
     double rt_temp, r, E;
+    float z;
     //int k, n, m;
     int err = 0;
 	int ngals = parameters.ngals;
@@ -190,7 +199,7 @@ int rk4_drv(double *t,
                         // end diagnostic
                     }
                 }
-
+                // Update galaxy positions
                 for (int n=0; n<ngals; n++){
 		            for (int k=0;k<3;k++) {
 			            gal[n].pos[k]=gal[n].post[k];
@@ -210,11 +219,11 @@ int rk4_drv(double *t,
                                          pow(gal[n].pos[1]-gal[m].pos[1], 2) +
                                          pow(gal[n].pos[2]-gal[m].pos[2], 2));
                                 rt_temp = calc_rt(r, fmin(gal[n].rt, gal[n].r_halo), gal[m], gal[n]);
-                                if (rt_temp < 0.0){ // error has occrued
+                                if (rt_temp < 0.0){ // error has occured
                                     E = binding_energy(gal[n]);
                                     if (E > 0.0){  // error due to galaxy being stripped
                                         gal[n].stripped = 1;
-                                        printf("Galaxy %s stripped.\n", gal[n].name);
+                                        printf("Galaxy %s stripped at time %g \n", gal[n].name, *t);
                                         break;
                                     } else {  // some other error, exit
                                         printf("problem (%g) with: %s (%s), E: %g, r: %g, rt: %g\n", rt_temp,
@@ -230,8 +239,19 @@ int rk4_drv(double *t,
                                     gal[n].rt = fmax(gal[n].rt, rt_temp);
                                 }
 
-                                gal[n].mtidal = halo_mass(gal[n].rt, gal[n]);
+                                //gal[n].mtidal = halo_mass(gal[n].rt, gal[n]);
                             }
+                        }
+                    }
+                }
+                if (*t < 0){  // only grow when in the past
+                    for (int n=0; n<ngals; n++){
+                        if (gal[n].mass_growth == 1){
+                            //Aquarius mass growth function
+                            z = -0.843 * log(1 - (-1**t)/11.32);  // fitting formula
+                            gal[n].mhalo = gal[n].minit *
+                                            pow(1 + z, 2.23) *
+                                            exp(-4.49*(sqrt(1 + z) - 1.0));  // Aquarius fitting formula
                         }
                     }
                 }
@@ -242,18 +262,24 @@ int rk4_drv(double *t,
 		        dt = dt/2.0;  // if we are outside the threshold halve the timestep and try again
 		    }
             // Abort if the timestep ever gets too low
-		    if (sign*dt < 0.01*dt0 && !laststep) {
-		        printf("Aborted... dt = %lf (>%lf, %lf)\n", dt, dt0, sign);
-		        return 3;
-		    }
-		    count++;
-                // round to the end of simulation time
-    		if (sign*dt > dtmax) {
-    		    dt = sign*dtmax;
-    		}
+            if (sign*dt < 0.01*dt0 && !laststep) {
+                printf("Aborted... dt = %g (>%lf, %lf)\n", dt, dt0, sign);
+                return 3;
+            }
+            count++;
+            // round to the max allowed timestep
+            if (sign*dt > dtmax) {
+                dt = sign*dtmax;
+            }
+
+            // round to the end of simulation
+            if (sign*dt+sign*(*t) > sign*(tmax)) {
+                dt = tmax - *t;
+            }
 
 		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
-	    if (sign**t>=sign*(tout)) {
+        //for (int n=0; n<ngals; n++) {
+        if (sign**t>=sign*(tout)) {
             /*DIAGNOSTIC
             //E = binding_energy(gal[n]);
             //if (E > 0.0){
@@ -300,24 +326,36 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int n
     hh = dt*0.5;
     int err = 0;
 	err = getforce_gals(x, v, acc0, gal_num, gal, ngals);
-	for (k=0;k<3;k++) {                /* first half-step */
+    if (err) {
+        return err;
+    }
+    for (k=0;k<3;k++) {                /* first half-step */
 	    xt1[k] = *(x+k)+hh**(v+k);
 	    vt1[k] = *(v+k)+hh**(acc0+k);
 	}
 
 	err = getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, ngals);
-	for (k=0;k<3;k++) {                /* second half-step */
+    if (err) {
+        return err;
+    }
+    for (k=0;k<3;k++) {                /* second half-step */
 	    xt2[k] = *(x+k)+hh*vt1[k];
 	    vt2[k] = *(v+k)+hh**(acc1+k);
 	}
 
 	err = getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, ngals);
+    if (err) {
+        return err;
+    }
 	for (k=0;k<3;k++) {                /* third half-step with results of second half-step */
 	    xt3[k] = *(x+k)+dt*vt2[k];
 	    vt3[k] = *(v+k)+dt**(acc2+k);
 	}
 
 	err = getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, ngals);
+    if (err) {
+        return err;
+    }
 	for (k=0;k<3;k++) {                /* Runge-Kutta formula */
 	    *(x+k) += dt/6.0*(*(v+k)+2.0*(vt1[k]+vt2[k])+vt3[k]);
 	    *(v+k) += dt/6.0*(*(acc0+k)+2.0*(*(acc1+k)+*(acc2+k))+*(acc3+k));
@@ -449,6 +487,9 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
                                          &ax, &ay, &az,
                                          gal[i], gal[gal_num].mhalo,
                                          gal[gal_num].r_halo);
+                if (err) {
+                    return err;
+                }
 
             }
         }
@@ -566,13 +607,16 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
     * X and Velocity dispersion
     */
 
-    if (gal.tidal_trunc){
+    /*if (gal.tidal_trunc){
         sigma = halo_sigma_trunc(r, gal);
     } else {
         sigma = halo_sigma(r, gal);
     }
+    */
+    sigma = halo_sigma(r, gal);
 
     if (sigma < 0){
+        printf("sigma: %g\n", sigma);
         return 1;
     }
 

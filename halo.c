@@ -3,6 +3,10 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_min.h>
 #include <gsl/gsl_integration.h>
+#include <gsl/gsl_errno.h>
+
+
+gsl_error_handler_t * gsl_set_error_handler(gsl_error_handler_t * new_handler);
 
 double halo_acc(double r, struct Gal gal, double x, double x0){
     if ((gal.rt != gal.rt) || (r < gal.rt)){ // normal halo acceleration

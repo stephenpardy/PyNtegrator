@@ -8,7 +8,7 @@ ext_modules = [Extension("pyorbits",
                          sources=sourcefiles,
                          library_dirs = ['/usr/local/lib'],
                          libraries = ['m', 'gslcblas', 'gsl'],
-                         extra_compile_args= ['-std=c99']
+                         extra_compile_args= ['-std=c99', '-Wall', '-Wextra']
                          )]
 
 setup(
