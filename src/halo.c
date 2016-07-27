@@ -8,6 +8,8 @@
 
 gsl_error_handler_t * gsl_set_error_handler(gsl_error_handler_t * new_handler);
 
+
+// The acceleration as a function of R
 double halo_acc(double r, struct Gal gal, double x, double x0){
     if ((gal.rt != gal.rt) || (r < gal.rt)){ // normal halo acceleration
         return -G*gal.mhalo * pow(r, -gal.gamma)*
@@ -19,12 +21,14 @@ double halo_acc(double r, struct Gal gal, double x, double x0){
 }
 
 
+// Sigma term to solve in the halo_sigma function
 double sigma_term(double x, void *params){
     struct Gal *p = (struct Gal *)params;
     return pow(x, 1-2*p[0].gamma)/pow(x+p[0].r_halo, 7-2*p[0].gamma);
 }
 
 
+// Halo velocity dispersion as a function of R
 double halo_sigma(double r, struct Gal gal){
     // init
     gsl_set_error_handler(&custom_gsl_error_handler);
@@ -48,6 +52,7 @@ double halo_sigma(double r, struct Gal gal){
 }
 
 
+// The sigma term in a turncated halo, used below
 double sigma_term_trunc(double x, void *params){
 
     struct Gal *p = (struct Gal *)params;
@@ -58,6 +63,7 @@ double sigma_term_trunc(double x, void *params){
 }
 
 
+// The halo velocity dispersion as a function of R, in a truncated halo
 double halo_sigma_trunc(double r, struct Gal gal){
     // init
     gsl_set_error_handler(&custom_gsl_error_handler);
@@ -83,6 +89,7 @@ double halo_sigma_trunc(double r, struct Gal gal){
 }
 
 
+// The Halo mass as a function of R
 double halo_mass(double r, struct Gal gal){
     double mhalo = gal.mhalo;
     double r_halo = gal.r_halo;
@@ -92,6 +99,7 @@ double halo_mass(double r, struct Gal gal){
 }
 
 
+// The halo density as a function of R
 double halo_density(double r, struct Gal gal){
     double mhalo = gal.mhalo;
     double r_halo = gal.r_halo;
@@ -101,6 +109,7 @@ double halo_density(double r, struct Gal gal){
 }
 
 
+// The W term of the binding energy equation
 double binding_w(double x, void *params){
 
     struct Gal *p = (struct Gal *)params;
@@ -111,6 +120,7 @@ double binding_w(double x, void *params){
 }
 
 
+// The T term of the binding energy equation
 double binding_t(double x, void *params){
 
     struct Gal *p = (struct Gal *)params;
@@ -121,6 +131,7 @@ double binding_t(double x, void *params){
 }
 
 
+// Compute the binding energy for a galaxy
 double binding_energy(struct Gal gal){
     // init
     gsl_set_error_handler(&custom_gsl_error_handler);
@@ -154,4 +165,13 @@ double binding_energy(struct Gal gal){
     T = 6.0*Pi*result_t;
 
     return W+T; //dimensionless binding energy - negative is bound
+}
+
+
+// Compute the mass growth of a galaxy
+double mass_growth(double t, struct Gal gal){
+    //Aquarius mass growth function
+    double z = -0.843 * log(1 - (-1*t)/11.32);  // fitting formula
+    return gal.minit * pow(1 + z, 2.23) *
+                       exp(-4.49*(sqrt(1 + z) - 1.0));  // Aquarius fitting formula for MW
 }

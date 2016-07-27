@@ -33,6 +33,8 @@ void custom_gsl_error_handler(const char * reason,
     (void)line;
 }
 
+
+// main function that initializes and runs the orbit
 int orbit(int ngals,
           struct Params parameters,
           struct Gal *gal,
@@ -71,7 +73,7 @@ int orbit(int ngals,
         }
 
         t = tstart;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
+        err = run_orbit(&t, tmax, dtoutt, dt0, mdiff, gal,
                       parameters, sign, output_snapshots, VARIABLE_TIMESTEPS,
                       RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS);
         if (err > 0){
@@ -88,7 +90,7 @@ int orbit(int ngals,
         // Init tracers
         init_tracers(gal, ngals);
         tmax = tfuture;
-        err = rk4_drv(&t, tmax, dtoutt, dt0, mdiff, gal,
+        err = run_orbit(&t, tmax, dtoutt, dt0, mdiff, gal,
                       parameters, sign, output_snapshots, VARIABLE_TIMESTEPS,
                       RECORD_SNAP, WRITE_SNAP, WRITE_TRACERS);
     }
@@ -97,6 +99,8 @@ int orbit(int ngals,
     return err;
 }
 
+
+// Initialize the tracer particles
 void init_tracers(struct Gal *gal, int ngals){
 srand(100);
 for (int n=0; n<ngals; n++){
@@ -112,7 +116,7 @@ for (int n=0; n<ngals; n++){
 }
 
 /* --------------- extrapolation method --------------- */
-int rk4_drv(double *t,
+int run_orbit(double *t,
             double tmax,
             double dtout,
             double dt0,
@@ -130,7 +134,6 @@ int rk4_drv(double *t,
 	double xe1[3], ve1[3], difftemp;
         //double rt = 1e+5;
     double rt_temp, r, E;
-    float z;
     //int k, n, m;
     int err = 0;
 	int ngals = parameters.ngals;
@@ -247,11 +250,7 @@ int rk4_drv(double *t,
                 if (*t < 0){  // only grow when in the past
                     for (int n=0; n<ngals; n++){
                         if (gal[n].mass_growth == 1){
-                            //Aquarius mass growth function
-                            z = -0.843 * log(1 - (-1**t)/11.32);  // fitting formula
-                            gal[n].mhalo = gal[n].minit *
-                                            pow(1 + z, 2.23) *
-                                            exp(-4.49*(sqrt(1 + z) - 1.0));  // Aquarius fitting formula
+                            gal[n].mhalo = mass_growth(*t, gal[n]);
                         }
                     }
                 }
@@ -318,7 +317,7 @@ int rk4_drv(double *t,
 }
 
 
-/* ---------- advancement ---------- */
+/* ---------- advancement of galaxies ---------- */
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals) {
 	double hh, acc0[3], acc1[3], acc2[3], acc3[3],xt1[3],xt2[3],xt3[3],vt1[3],vt2[3],vt3[3];
 	int k;
@@ -379,25 +378,25 @@ int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, i
             v[k] = (*test_particles).vel[3*n+k];
         }
 
-        err = getforce_tracers(x, v, acc0, gal, ngals);
+        err = getforce_tracers(x, acc0, gal, ngals);
         for (int k=0; k<3; k++) {                /* first half-step */
             xt1[k] = x[k]+hh*v[k];
             vt1[k] = v[k]+hh*acc0[k];
         }
 
-        err = getforce_tracers(&xt1[0], &vt1[0], acc1, gal, ngals);
+        err = getforce_tracers(&xt1[0], acc1, gal, ngals);
         for (int k=0; k<3; k++) {                /* second half-step */
             xt2[k] = x[k]+hh*vt1[k];
             vt2[k] = v[k]+hh*acc1[k];
         }
 
-        err = getforce_tracers(&xt2[0], &vt2[0], acc2, gal, ngals);
+        err = getforce_tracers(&xt2[0], acc2, gal, ngals);
         for (int k=0; k<3; k++) {                /* third half-step with results of second half-step */
             xt3[k] = *(x+k)+dt*vt2[k];
             vt3[k] = *(v+k)+dt*acc2[k];
         }
 
-        err = getforce_tracers(&xt3[0], &vt3[0], acc3, gal, ngals);
+        err = getforce_tracers(&xt3[0], acc3, gal, ngals);
         for (int k=0; k<3; k++) {                /* Runge-Kutta formula */
             (*test_particles).pos[3*n+k] += dt/6.0*(v[k]+2.0*(vt1[k]+vt2[k])+vt3[k]);
             (*test_particles).vel[3*n+k] += dt/6.0*(acc0[k]+2.0*(acc1[k]+acc2[k])+acc3[k]);
@@ -406,6 +405,8 @@ int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, i
     return err;
 }
 
+
+// Get the acceleration on a single galaxy due to the other galaxies
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals){
 
     int i;
@@ -501,7 +502,9 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
     return err;
 }
 
-int getforce_tracers(double *x, double *v, double *a, struct Gal *gal, int ngals){
+
+//get the acceleration applied to the tracer particles due to the galaxies.s 
+int getforce_tracers(double *x, double *a, struct Gal *gal, int ngals){
 
     int i;
     int err = 0;
@@ -640,11 +643,23 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
 }
 
 
+// The tidal formula minimized by the truncation radius function below
 double tidal_condition(double x, void *params)
 {
+    /*
+    Args: 
+        Double x: truncation radius
+        void *params:
+            p[0]: Md (Mass of gal2 - galaxy to be truncated)
+            p[1]: Mg (Mass of gal1 - central galaxy)
+            p[2]: aD (scale length of gal2)
+            p[3]: aG (scale length of gal1)
+            p[4]: r (distance between galaxies)
+            p[5]: gammaD (Dehnen gamma parameter for gal2)
+            p[6]: gammaG (Dehnen gamma parameter for gal1)
+    */
     double *p = (double *)params;
     double MD, MG;
-  // p[0] = MD, p[1] = MG, p[2] = aD, p[3] = aG, p[4] = r, p[5] = gammaD, p[6] = gammaG
     MD = p[0]*pow(x/(x+p[2]), 3-p[5]);
 
     MG = p[1]*pow((p[4]-x)/(p[4]-x+p[3]), 3-p[6]);
@@ -654,8 +669,16 @@ double tidal_condition(double x, void *params)
 }
 
 
-double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
+// calculate truncation radius of a galaxy's dark matter halo
+double calc_rt(double r, double rt, struct Gal gal1, struct Gal gal2)
 {
+    /*
+    Args:
+        double r: Radius between galaxies
+        double rt: current truncation radius
+        struct Gal gal1: Central gakaxy
+        struct Gal gal2: Secondary galaxy (one to be truncated)
+    */
     int status;
     int iter = 0, max_iter = 100;
     const gsl_min_fminimizer_type *T;
@@ -663,8 +686,8 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
     double m = rt;
     double a = 1e-1, b = r-1e-1;
     gsl_function F;
-    double p[7] = {galD.mhalo, galG.mhalo, galD.r_halo, galG.r_halo, r,
-                   galD.gamma, galG.gamma};
+    double p[7] = {gal2.mhalo, gal1.mhalo, gal2.r_halo, gal1.r_halo, r,
+                   gal2.gamma, gal1.gamma};
     F.function = &tidal_condition;
     F.params = (void *)p;
     gsl_set_error_handler(&custom_gsl_error_handler);
@@ -703,7 +726,7 @@ double calc_rt(double r, double rt, struct Gal galG, struct Gal galD)
     return m;
 }
 
-
+// Write a snapshot to disk
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber){
     int n;
     int ngals = parameters.ngals;
@@ -733,6 +756,7 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
 }
 
 
+// Save a snapshot to an array for output
 void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot){
     int n, i;
     for (n=0; n<ngals; n++){
@@ -746,6 +770,7 @@ void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struc
     }
 }
 
+// Write the positions and velocities of the tracer particles to disk
 void write_tracers(struct Params parameters, struct Gal *gal, double t, int snapnumber){
     int ngals = parameters.ngals;
     char *folder = parameters.outputdir;

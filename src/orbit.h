@@ -78,7 +78,7 @@ int orbit(int ngals,
           struct Gal *gal,
           struct Snapshot ** output_snapshots);
 
-int rk4_drv(double *t,
+int run_orbit(double *t,
             double tmax,
             double dtout,
             double dt0,
@@ -98,7 +98,7 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals);
 
 int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, int ngals);
-int getforce_tracers(double *x, double *v, double *a, struct Gal *gal, int ngals);
+int getforce_tracers(double *x, double *a, struct Gal *gal, int ngals);
 
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                        double *ax, double *ay, double *az,  // accelerations update in function
@@ -114,6 +114,8 @@ double sigma_term(double x, void *params);
 
 double halo_sigma_trunc(double r, struct Gal gal);
 double sigma_term_trunc(double x, void *params);
+
+double mass_growth(double t, struct Gal gal);
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);
 void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot);
