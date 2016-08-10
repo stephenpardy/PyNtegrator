@@ -63,8 +63,6 @@ int orbit(int ngals,
             RECORD_SNAP = 1;
             WRITE_SNAP = parameters.snapshot; // Use users choice
             WRITE_TRACERS = parameters.write_tracers; // Use users choice
-            // Init tracers
-            init_tracers(gal, ngals);
 
         } else {  // otherwise don't save snapshots during backward integration
             RECORD_SNAP = 0;
@@ -87,8 +85,6 @@ int orbit(int ngals,
         RECORD_SNAP = 1;  // Always save going forward
         WRITE_SNAP = parameters.snapshot;  // Use users choice
         WRITE_TRACERS = parameters.write_tracers;  // Use users choice
-        // Init tracers
-        init_tracers(gal, ngals);
         tmax = tfuture;
         err = run_orbit(&t, tmax, dtoutt, dt0, mdiff, gal,
                       parameters, sign, output_snapshots, VARIABLE_TIMESTEPS,
@@ -99,21 +95,6 @@ int orbit(int ngals,
     return err;
 }
 
-
-// Initialize the tracer particles
-void init_tracers(struct Gal *gal, int ngals){
-srand(100);
-for (int n=0; n<ngals; n++){
-    if (gal[n].test_particles.nparticles > 0){
-        for (int i=0; i<1000; i++){
-            for(int j=0; j<3; j++){
-                gal[n].test_particles.pos[i*3+j] = gal[n].pos[j]+gal[n].pos[j]*(2.0*(rand() / ((double)RAND_MAX + 1))-1.0)/100.;
-                gal[n].test_particles.vel[i*3+j] = gal[n].vel[j];
-            }
-        }
-    }
-}
-}
 
 /* --------------- extrapolation method --------------- */
 int run_orbit(double *t,
@@ -581,6 +562,11 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
                        double *ax, double *ay, double *az,  // accelerations update in function
                        struct Gal gal,
                        double m_gal, double r_gal){  // companion mass and scale length
+    
+    // We have set the maximum integration for dynamical friction at 1000kpc, it doesn't make sense to use this if 
+    // your galaxies are further away than that
+    if (r >= 1000.) return 0;
+
     double sigma,density;
     double dyn_L, dyn_C, dyn_alpha;
     double mhalo = gal.mhalo;
@@ -625,7 +611,6 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
 
     sigma = 3.0*sqrt(sigma);
 
-    //halo_sigma_old(r, gal, &sigma);
     double X = vr/(sqrt(2.0)*sigma);
 
     density = halo_density(r, gal);

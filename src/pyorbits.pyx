@@ -68,11 +68,18 @@ cdef extern from *:
         double t
 
 
-def run(dict input_parameters):
+def run(dict input_parameters,
+        tracers=None):
     """
     args:
         dict input_parameters:
             A dictionary of input parameters. See below for structure. 
+        dict tracers:
+            Either None or a dictionary containing the tracer particles for each galaxy. 
+                Should have structure:
+                {'<GALNAME>': (np.array(<SIZEOF N, 3>), np.array(<SIZEOF N, 3>))}
+                The first element of the array is for the positions and the second element is for the velocities
+
     """
     cdef str param
     cdef dict galaxy
@@ -124,13 +131,31 @@ def run(dict input_parameters):
             # TESTING tracers
             if galaxy['tracers'] == 1:
                 TRACERS = True
-                gal[n].test_particles.nparticles = 1000
-                gal[n].test_particles.pos = <double *>malloc(sizeof(double) * 3* 1000)
-                gal[n].test_particles.vel = <double *>malloc(sizeof(double) * 3* 1000)
+                if tracers is not None:
+                    try:
+                        pos, vel = tracers[gal_name]
+                        ntracers = pos.shape[0]
+                        gal[n].test_particles.nparticles = ntracers
+                        gal[n].test_particles.pos = <double *>malloc(sizeof(double) * 3 * ntracers)
+                        gal[n].test_particles.vel = <double *>malloc(sizeof(double) * 3 * ntracers)
+                        for i in xrange(ntracers):
+                            for j in xrange(3):
+                                gal[n].test_particles.pos[i*3+j] = pos[i, j]
+                                gal[n].test_particles.vel[i*3+j] = vel[i, j]
+
+                    except KeyError, e:
+                        free(gal)
+                        print 'No tracers found for galaxy {:s}'.format(gal_name)
+                        raise KeyError, e
+                else:
+                    free(gal)
+                    print 'No tracers found!'
+                    raise RuntimeError
             else:
                 gal[n].test_particles.nparticles = 0
 
     except KeyError, e:
+        free(gal)        
         print('Missing parameter from galaxy %s' % gal[n].name)
         raise KeyError, e
     # Read integration parameters
@@ -170,11 +195,13 @@ def run(dict input_parameters):
             for i in range(nsnaps):
                 output_snapshots[i] = <Snapshot *>malloc(sizeof(Snapshot) * ngals)
     else:
+        free(gal)
         raise RuntimeError("You must either set tpast < 0 or tfuture > 0")
 
     err = orbit(ngals, parameters, gal, output_snapshots)
 
     if (err > 0):
+
         raise RuntimeError("Problem in integration. Error code: %d" % err)
 
     #Generate an array of galaxy snapshots
@@ -194,15 +221,18 @@ def run(dict input_parameters):
         npart = gal[i].test_particles.nparticles
         if (npart > 0):
             tracers_temp = np.empty((npart, 3))
-        else:
-            continue
-        for j in xrange(npart):
-            for k in  xrange(3):
-                tracers_temp[j, k] = gal[i].test_particles.pos[j*3+k]
-        if (tracers is None):
-            tracers = tracers_temp
-        else:
-            tracers = np.concatenate((tracers, tracers_temp), axis=0)
+
+            for j in xrange(npart):
+                for k in  xrange(3):
+                    tracers_temp[j, k] = gal[i].test_particles.pos[j*3+k]
+            if (tracers is None):
+                tracers = tracers_temp
+            else:
+                tracers = np.concatenate((tracers, tracers_temp), axis=0)
+            free(gal[i].test_particles.pos)
+            free(gal[i].test_particles.vel)
+
+
     #Free now that we are done with these
     for i in range(nsnaps):
         free(output_snapshots[i])

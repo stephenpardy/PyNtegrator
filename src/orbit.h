@@ -92,8 +92,6 @@ int run_orbit(double *t,
             int WRITE_SNAP,
             int WRITE_TRACERS);
 
-void init_tracers(struct Gal *gal, int ngals);
-
 int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals);
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals);
 
