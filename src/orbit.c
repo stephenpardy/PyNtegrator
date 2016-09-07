@@ -16,7 +16,7 @@
 double const tstart = 0.0;          //time at input of cluster coordinates [Gyr], usually today, i.e. 0.0
 
 double const mdiff = 1.E-7;         //precission
-double const RMIN = 1e-4;         //Smallest allowed separation between galaxies (effectively a softening)
+double const RMIN = 1e-8;         //Smallest allowed separation between galaxies (effectively a softening)
 double const dtmax = 0.025;          //maximum time-step [Gyr]
 
 //currently does nothing
@@ -35,8 +35,7 @@ void custom_gsl_error_handler(const char * reason,
 
 
 // main function that initializes and runs the orbit
-int orbit(int ngals,
-          struct Params parameters,
+int orbit(struct Params parameters,
           struct Gal *gal,
           struct Snapshot **output_snapshots){
 
@@ -305,7 +304,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int n
 
     hh = dt*0.5;
     int err = 0;
-	err = getforce_gals(x, v, acc0, gal_num, gal, ngals);
+	err = getforce(x, v, acc0, gal_num, gal, ngals);
     if (err) {
         return err;
     }
@@ -314,7 +313,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int n
 	    vt1[k] = *(v+k)+hh**(acc0+k);
 	}
 
-	err = getforce_gals(&xt1[0], &vt1[0], acc1, gal_num, gal, ngals);
+	err = getforce(xt1, vt1, acc1, gal_num, gal, ngals);
     if (err) {
         return err;
     }
@@ -323,7 +322,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int n
 	    vt2[k] = *(v+k)+hh**(acc1+k);
 	}
 
-	err = getforce_gals(&xt2[0], &vt2[0], acc2, gal_num, gal, ngals);
+	err = getforce(xt2, vt2, acc2, gal_num, gal, ngals);
     if (err) {
         return err;
     }
@@ -332,7 +331,7 @@ int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int n
 	    vt3[k] = *(v+k)+dt**(acc2+k);
 	}
 
-	err = getforce_gals(&xt3[0], &vt3[0], acc3, gal_num, gal, ngals);
+	err = getforce(xt3, vt3, acc3, gal_num, gal, ngals);
     if (err) {
         return err;
     }
@@ -358,26 +357,26 @@ int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, i
             x[k] = (*test_particles).pos[3*n+k];
             v[k] = (*test_particles).vel[3*n+k];
         }
-
-        err = getforce_tracers(x, acc0, gal, ngals);
+        //Set galnum = -1 for tracers to get the force from all galaxies.
+        err = getforce(x, v, acc0, -1, gal, ngals);
         for (int k=0; k<3; k++) {                /* first half-step */
             xt1[k] = x[k]+hh*v[k];
             vt1[k] = v[k]+hh*acc0[k];
         }
 
-        err = getforce_tracers(&xt1[0], acc1, gal, ngals);
+        err = getforce(xt1, vt1, acc1, -1, gal, ngals);
         for (int k=0; k<3; k++) {                /* second half-step */
             xt2[k] = x[k]+hh*vt1[k];
             vt2[k] = v[k]+hh*acc1[k];
         }
 
-        err = getforce_tracers(&xt2[0], acc2, gal, ngals);
+        err = getforce(xt2, vt2, acc2, -1, gal, ngals);
         for (int k=0; k<3; k++) {                /* third half-step with results of second half-step */
             xt3[k] = *(x+k)+dt*vt2[k];
             vt3[k] = *(v+k)+dt*acc2[k];
         }
 
-        err = getforce_tracers(&xt3[0], acc3, gal, ngals);
+        err = getforce(xt3, vt3, acc3, -1, gal, ngals);
         for (int k=0; k<3; k++) {                /* Runge-Kutta formula */
             (*test_particles).pos[3*n+k] += dt/6.0*(v[k]+2.0*(vt1[k]+vt2[k])+vt3[k]);
             (*test_particles).vel[3*n+k] += dt/6.0*(acc0[k]+2.0*(acc1[k]+acc2[k])+acc3[k]);
@@ -387,8 +386,8 @@ int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, i
 }
 
 
-// Get the acceleration on a single galaxy due to the other galaxies
-int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals){
+// Get the acceleration on a single galaxy or tracers due to the other galaxies
+int getforce(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals){
 
     int i;
     int err = 0;
@@ -403,44 +402,40 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
     // get the force from all other galaxies
     for (i=0; i<ngals; i++){
         if (i != gal_num){  // skip itself
-            //Hernquist bulge
-            r = sqrt(pow(*x - gal[i].pos[0], 2) +
-                 pow(*(x+1) - gal[i].pos[1], 2) +
-                 pow(*(x+2) - gal[i].pos[2], 2));
-            if (r > RMIN){ // control for very close encounters
+            if (gal[i].M_bulge > 0){
+                //Hernquist bulge
                 rx = (*x - gal[i].pos[0]);
                 ry = (*(x+1) - gal[i].pos[1]);
-                rz = (*(x+2) - gal[i].pos[2]);
-            } else {
-                printf("Very close\n");
-                rx = r;
-                ry = r;
-                rz = r;
+                rz = (*(x+2) - gal[i].pos[2]); 
+
+                r = sqrt(rx*rx + ry*ry + rz*rz);
+
+                // control for very close encounters
+                if (r < RMIN) r = RMIN;
+
+                ax += -G*gal[i].M_bulge/((r+gal[i].b_bulge)*
+                    (r+gal[i].b_bulge))*rx/r;
+                ay += -G*gal[i].M_bulge/((r+gal[i].b_bulge)*
+                    (r+gal[i].b_bulge))*ry/r;
+                az += -G*gal[i].M_bulge/((r+gal[i].b_bulge)*
+                    (r+gal[i].b_bulge))*rz/r;
+            }
+            if (gal[i].M_disk > 0){
+                //Miyamato disk
+
+                rx = *x - gal[i].pos[0];
+                ry = *(x+1) - gal[i].pos[1];
+                rz = gal[i].a_disk + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
+                                          + pow(gal[i].b_disk, 2));
+
+                r = sqrt(rx*rx + ry*ry + rz*rz);
+                if (r < RMIN) r = RMIN;
+
+                ax += -G*gal[i].M_disk/(r*r*r) * rx;
+                ay += -G*gal[i].M_disk/(r*r*r) * ry;
+                az += -G*gal[i].M_disk/(r*r*r) * rz / (rz - gal[i].a_disk);
             }
 
-    	    ax += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-    	        (r+gal[i].b1_LMJ))*rx/r;
-    	    ay += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-    	        (r+gal[i].b1_LMJ))*ry/r;
-    	    az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-    	        (r+gal[i].b1_LMJ))*rz/r;
-
-            //Miyamato disk
-    	    r = sqrt(pow(*x - gal[i].pos[0], 2) +
-    	             pow(*(x+1) - gal[i].pos[1], 2) +
-    	             pow(gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-    	                                      + pow(gal[i].b2_LMJ, 2)), 2)
-    	             );
-            if (r > RMIN){ // control for very close encounters
-
-        	    ax += -G*gal[i].M2_LMJ/(r*r*r) * (*x - gal[i].pos[0]);
-        	    ay += -G*gal[i].M2_LMJ/(r*r*r) * (*(x+1) - gal[i].pos[1]);
-        	    az += -G*gal[i].M2_LMJ/(r*r*r) * (gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-        	                                                           + pow(gal[i].b2_LMJ, 2)))
-        	                                     / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-        	                                            + pow(gal[i].b2_LMJ, 2))
-        	                                     * (*(x+2) - gal[i].pos[2]);
-            }
             // Dark Matter Halo
             r = sqrt(pow(*x - gal[i].pos[0], 2) +
                      pow(*(x+1) - gal[i].pos[1], 2) +
@@ -454,11 +449,19 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
                 ry = r;
                 rz = r;
             }
-            ax += halo_acc(r, gal[i], rx, 0.0);  //x vector
-            ay += halo_acc(r, gal[i], ry, 0.0);  // y vector
-            az += halo_acc(r, gal[i], rz, 0.0);  // z vector
+
+            if (gal[i].halo_type == 1) {
+                ax += plummer_acc(r, gal[i], rz, 0.0);  // x vector                
+                ay += plummer_acc(r, gal[i], rz, 0.0);  // y vector                
+                az += plummer_acc(r, gal[i], rz, 0.0);  // z vector                
+            } else {
+                ax += halo_acc(r, gal[i], rx, 0.0);  //x vector
+                ay += halo_acc(r, gal[i], ry, 0.0);  // y vector
+                az += halo_acc(r, gal[i], rz, 0.0);  // z vector                
+            }
+
             // dynamical friction
-            if (gal[i].dyn_fric == 1) {// is dynamical friction turned on for this galaxy?
+            if ((gal[i].dyn_fric == 1) && (gal_num != -1)) {// is dynamical friction turned on for this galaxy?
                 //relative velocity
                 vx = (*v - gal[i].vel[0]);
                 vy = (*(v+1) - gal[i].vel[1]);
@@ -475,79 +478,6 @@ int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal,
 
             }
         }
-    }
-    // update acceleration
-    *(a+0) = ax;
-    *(a+1) = ay;
-    *(a+2) = az;
-    return err;
-}
-
-
-//get the acceleration applied to the tracer particles due to the galaxies.s 
-int getforce_tracers(double *x, double *a, struct Gal *gal, int ngals){
-
-    int i;
-    int err = 0;
-    double r, rx, ry, rz;
-    double ax = 0.0;
-    double ay = 0.0;
-    double az = 0.0;
-    // get the force from all other galaxies
-    for (i=0; i<ngals; i++){
-        //Hernquist bulge
-        r = sqrt(pow(*x - gal[i].pos[0], 2) +
-             pow(*(x+1) - gal[i].pos[1], 2) +
-             pow(*(x+2) - gal[i].pos[2], 2));
-        if (r > RMIN){ // control for very close encounters
-            rx = (*x - gal[i].pos[0]);
-            ry = (*(x+1) - gal[i].pos[1]);
-            rz = (*(x+2) - gal[i].pos[2]);
-        } else {
-            rx = r;
-            ry = r;
-            rz = r;
-        }
-
-        ax += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-            (r+gal[i].b1_LMJ))*rx/r;
-        ay += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-            (r+gal[i].b1_LMJ))*ry/r;
-        az += -G*gal[i].M1_LMJ/((r+gal[i].b1_LMJ)*
-            (r+gal[i].b1_LMJ))*rz/r;
-
-        //Miyamato disk
-        r = sqrt(pow(*x - gal[i].pos[0], 2) +
-                 pow(*(x+1) - gal[i].pos[1], 2) +
-                 pow(gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-                                          + pow(gal[i].b2_LMJ, 2)), 2)
-                 );
-        if (r > RMIN){ // control for very close encounters
-
-            ax += -G*gal[i].M2_LMJ/(r*r*r) * (*x - gal[i].pos[0]);
-            ay += -G*gal[i].M2_LMJ/(r*r*r) * (*(x+1) - gal[i].pos[1]);
-            az += -G*gal[i].M2_LMJ/(r*r*r) * (gal[i].a2_LMJ + sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-                                                                   + pow(gal[i].b2_LMJ, 2)))
-                                             / sqrt(pow(*(x+2) - gal[i].pos[2], 2)
-                                                    + pow(gal[i].b2_LMJ, 2))
-                                             * (*(x+2) - gal[i].pos[2]);
-        }
-        // Dark Matter Halo
-        r = sqrt(pow(*x - gal[i].pos[0], 2) +
-                 pow(*(x+1) - gal[i].pos[1], 2) +
-                 pow(*(x+2) - gal[i].pos[2], 2));
-        if (r > RMIN){ // control for very close encounters
-            rx = (*x - gal[i].pos[0]);
-            ry = (*(x+1) - gal[i].pos[1]);
-            rz = (*(x+2) - gal[i].pos[2]);
-        } else {
-            rx = r;
-            ry = r;
-            rz = r;
-        }
-        ax += halo_acc(r, gal[i], rx, 0.0);  //x vector
-        ay += halo_acc(r, gal[i], ry, 0.0);  // y vector
-        az += halo_acc(r, gal[i], rz, 0.0);  // z vector
     }
     // update acceleration
     *(a+0) = ax;
@@ -589,8 +519,12 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
             dyn_C = gal.dyn_C_uneq;
             dyn_alpha = gal.dyn_alpha_uneq;
         }
-        coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
-                                    dyn_alpha));
+        if (dyn_alpha != 0){
+            coulomb = fmax(dyn_L, pow(log(r/(dyn_C*r_gal)),
+                                      dyn_alpha));
+        } else {
+            coulomb = dyn_L;
+        }
     }
     /*
     * X and Velocity dispersion
@@ -602,7 +536,12 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
         sigma = halo_sigma(r, gal);
     }
     */
-    sigma = halo_sigma(r, gal);
+
+    if (gal.halo_type == 1){  // Plummer
+        sigma = plummer_sigma(r, gal);
+    } else {
+        sigma = halo_sigma(r, gal);
+    }
 
     if (sigma < 0){
         printf("sigma: %g\n", sigma);
@@ -613,7 +552,11 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
 
     double X = vr/(sqrt(2.0)*sigma);
 
-    density = halo_density(r, gal);
+    if (gal.halo_type == 1){ // Plummer
+        density = plummer_density(r, gal);
+    } else {
+        density = halo_density(r, gal);
+    }
 
     *ax += -4.0*Pi*G*G*m_gal*density*coulomb*
         (erf(X) - 2.0*X/sqrt(Pi)*exp(-X*X))*vx/pow(vr, 3);
@@ -723,7 +666,7 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
     snapfile = fopen(snapname, "w");
     fprintf(snapfile,"NAME,X,Y,Z,VX,VY,VZ,AX,AY,AZ,T\n");
     for (n=0; n<ngals; n++){
-        getforce_gals(gal[n].pos, gal[n].vel, acc0, n, gal, ngals);
+        getforce(gal[n].pos, gal[n].vel, acc0, n, gal, ngals);
         fprintf(snapfile,"%s,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f,%10.5f\n",
                 gal[n].name,
                 gal[n].pos[0],

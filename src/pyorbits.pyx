@@ -8,8 +8,7 @@ import copy
 
 
 cdef extern from 'orbit.c':
-    int orbit(int ngals,
-              Params parameters,
+    int orbit(Params parameters,
               Gal *gal,
               Snapshot **output_snapshots)
 
@@ -29,11 +28,12 @@ cdef extern from *:
         double minit
         double r_halo
         double gamma
-        double a2_LMJ
-        double b2_LMJ
-        double M2_LMJ
-        double M1_LMJ
-        double b1_LMJ
+        int halo_type
+        double a_disk
+        double b_disk
+        double M_disk
+        double M_bulge
+        double b_bulge
         int dyn_fric
         int mass_growth
         double dyn_C_eq
@@ -97,16 +97,21 @@ def run(dict input_parameters,
     #Read galaxy parameters
     try:
         for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
+            #temporary backwards compatibility check
+            if 'halo_type' not in galaxy.keys():
+                galaxy['halo_type'] = 0  # default is Hernquist
+
             gal[n].name = gal_name
             gal[n].mhalo = galaxy['mass']
             gal[n].minit = galaxy['mass']
             gal[n].r_halo = galaxy['rad']
             gal[n].gamma = galaxy['gamma']
-            gal[n].a2_LMJ = galaxy['a2']
-            gal[n].b2_LMJ = galaxy['b2']
-            gal[n].M2_LMJ = galaxy['m2']
-            gal[n].M1_LMJ = galaxy['m1']
-            gal[n].b1_LMJ = galaxy['b1']
+            gal[n].halo_type = galaxy['halo_type']
+            gal[n].a_disk = galaxy['a2']
+            gal[n].b_disk = galaxy['b2']
+            gal[n].M_disk = galaxy['m2']
+            gal[n].M_bulge = galaxy['m1']
+            gal[n].b_bulge = galaxy['b1']
             gal[n].dyn_fric = galaxy['dynamical_friction']
             gal[n].mass_growth = galaxy['mass_growth']
             gal[n].inplace = galaxy['inplace']
@@ -198,7 +203,7 @@ def run(dict input_parameters,
         free(gal)
         raise RuntimeError("You must either set tpast < 0 or tfuture > 0")
 
-    err = orbit(ngals, parameters, gal, output_snapshots)
+    err = orbit(parameters, gal, output_snapshots)
 
     if (err > 0):
 

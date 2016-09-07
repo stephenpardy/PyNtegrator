@@ -28,11 +28,12 @@ struct Gal // Gal - companion galaxies
     double minit;
     double r_halo;
     double gamma;
-    double a2_LMJ;
-    double b2_LMJ;
-    double M2_LMJ;
-    double M1_LMJ;
-    double b1_LMJ;
+    int halo_type;
+    double a_disk;
+    double b_disk;
+    double M_disk;
+    double M_bulge;
+    double b_bulge;
     int dyn_fric;  // is dynamical friction turned on for this galaxy?
     int mass_growth; // does this galaxy grow in mass over time?
     double dyn_C_eq;  // Equal mass terms
@@ -71,10 +72,31 @@ struct Params //Params - orbital parameters
     int variabletimesteps; // Use variable or fixed timesteps
 };
 
-//functions
+// from halo.c
 
-int orbit(int ngals,
-          struct Params parameters,
+double halo_acc(double r, struct Gal gal, double x, double x0);
+double halo_density(double r, struct Gal gal);
+double halo_mass(double r, struct Gal gal);
+
+double halo_sigma(double r, struct Gal gal);
+double sigma_term(double x, void *params);
+
+double halo_sigma_trunc(double r, struct Gal gal);
+double sigma_term_trunc(double x, void *params);
+
+double mass_growth(double t, struct Gal gal);
+
+// from plummer.c
+
+double plummer_acc(double r, struct Gal gal, double x, double x0);
+double plummer_density(double r, struct Gal gal);
+double plummer_mass(double r, struct Gal gal);
+
+double plummer_sigma(double r, struct Gal gal);
+
+//functions from orbit.c
+
+int orbit(struct Params parameters,
           struct Gal *gal,
           struct Snapshot ** output_snapshots);
 
@@ -92,28 +114,15 @@ int run_orbit(double *t,
             int WRITE_SNAP,
             int WRITE_TRACERS);
 
-int getforce_gals(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals);
+int getforce(double *x, double *v, double *a, int gal_num, struct Gal *gal, int ngals);
 int do_step(double dt, double *x, double *v, int gal_num, struct Gal *gal, int ngals);
 
 int do_step_tracers(double dt, struct Tracer *test_particles, struct Gal *gal, int ngals);
-int getforce_tracers(double *x, double *a, struct Gal *gal, int ngals);
 
 int dynamical_friction(double r, double vx, double vy, double vz, double vr,  // orbit velocity and radius
                        double *ax, double *ay, double *az,  // accelerations update in function
                        struct Gal gal,
                        double m_gal, double r_gal);  // companion mass and friction
-double halo_acc(double r, struct Gal gal, double x, double x0);
-double halo_sigma_old(double r, struct Gal gal);
-double halo_density(double r, struct Gal gal);
-double halo_mass(double r, struct Gal gal);
-
-double halo_sigma(double r, struct Gal gal);
-double sigma_term(double x, void *params);
-
-double halo_sigma_trunc(double r, struct Gal gal);
-double sigma_term_trunc(double x, void *params);
-
-double mass_growth(double t, struct Gal gal);
 
 void write_snapshot(struct Params parameters, struct Gal *gal, double t, int snapnumber);
 void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot);
