@@ -121,10 +121,10 @@ int run_orbit(double *t,
 	tout = *t;		    /* time of next output/insertion */
 	dt = sign*dt0;                /* initial time step */
 	//integrate galaxies
+    int laststep = 0;
 	do {
         //advance each particle
 	    int count = 0;
-        int laststep = 0;
 	    do {
 		    difftemp = 0.0;
 	        diff = 0.0;
@@ -254,11 +254,12 @@ int run_orbit(double *t,
             // round to the end of simulation
             if (sign*dt+sign*(*t) > sign*(tmax)) {
                 dt = tmax - *t;
+                laststep = 1;
             }
 
-		} while (diff>mdiff);       /* Go through loop once and only repeat if difference is too large */
+		} while (diff > mdiff);       /* Go through loop once and only repeat if difference is too large */
         //for (int n=0; n<ngals; n++) {
-        if (sign**t>=sign*(tout)) {
+        if (sign**t >= sign*(tout)) {
             /*DIAGNOSTIC
             //E = binding_energy(gal[n]);
             //if (E > 0.0){
@@ -289,9 +290,10 @@ int run_orbit(double *t,
         }
 
 
-    } while (sign**t<sign*(tmax));
+    } while (sign**t < sign*(tmax));
     // write final snapshot
     if (WRITE_SNAP) write_snapshot(parameters, gal, *t, snapnum);
+    //if (RECORD_SNAP) record_snapshot(ngals, gal, *t, snapnum, output_snapshots);
 	return 0;
 
 }
@@ -687,6 +689,7 @@ void write_snapshot(struct Params parameters, struct Gal *gal, double t, int sna
 // Save a snapshot to an array for output
 void record_snapshot(int ngals, struct Gal *gal, double t, int snapnumber, struct Snapshot **output_snapshot){
     int n, i;
+    //printf("%i\n", snapnumber);
     for (n=0; n<ngals; n++){
         output_snapshot[snapnumber][n].name = gal[n].name;
         output_snapshot[snapnumber][n].stripped = gal[n].stripped;
