@@ -7,4 +7,4 @@ notifications:
 
 install:
     - pip install -q numpy cython
-    - python setup.py develop
+    - python setup.py build_ext --inplace
