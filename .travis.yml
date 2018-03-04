@@ -5,6 +5,9 @@ python:
 notifications:
   email: false
 
-install:
+before_install:
+    - sudo apt-get install libgsl0ldbl
     - pip install -q numpy cython
+
+install:
     - python setup.py build_ext --inplace
