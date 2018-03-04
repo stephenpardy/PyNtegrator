@@ -139,7 +139,7 @@ def run(dict input_parameters,
                 TRACERS = True
                 if tracers is not None:
                     try:
-                        pos, vel = tracers[gal_name]
+                        pos, vel = tracers[name]
                         ntracers = pos.shape[0]
                         gal[n].test_particles.nparticles = ntracers
                         gal[n].test_particles.pos = <double *>malloc(sizeof(double) * 3 * ntracers)
@@ -151,7 +151,7 @@ def run(dict input_parameters,
 
                     except KeyError, e:
                         free(gal)
-                        print('No tracers found for galaxy {:s}'.format(gal_name))
+                        print('No tracers found for galaxy {:s}'.format(name))
                         raise KeyError, e
                 else:
                     free(gal)
