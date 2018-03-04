@@ -10,6 +10,8 @@ myutils.py
 *~
 .DS_Store
 chains/
+src/pyorbits.c
+src/orbit_probe.c
 *.eps
 orbit
 data/

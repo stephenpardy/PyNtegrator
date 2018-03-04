@@ -1,6 +1,5 @@
 import numpy as np
 import emcee
-from math import *
 from random import random
 from random import gauss
 import sys

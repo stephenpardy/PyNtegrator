@@ -1,7 +1,5 @@
 import numpy as np
-from math import *
 import sys
-import scipy.optimize
 import inspect
 
 
@@ -12,6 +10,8 @@ def printcol(*arg, **kwarg):
     #
 
     # Set output
+    #with open(kwarg['fout'], 'w') as f:
+
     if kwarg:
         f = open(kwarg['fout'], 'w')
     else:
@@ -33,24 +33,24 @@ def printcol(*arg, **kwarg):
     Ncol = len(arg)
     Nrow = np.zeros(Ncol)
 
-    for i in xrange(Ncol):
+    for i in range(Ncol):
         Nrow[i] = len(arg[i])
 
     Nmax = int(np.max(Nrow))
 
     # Print
-    print>>f, ("#"),
-    for i in xrange(len(names)):
-        print>>f, ("%s\t" % names[i]),
-    print>>f, ("\n#\n"),
+    print("#", end='', file=f)
+    for i in range(len(names)):
+        print("%s\t" % names[i], end='', file=f)
+    print("\n#\n", end='', file=f)
 
-    for i in xrange(Nmax):
-        for j in xrange(Ncol):
+    for i in range(Nmax):
+        for j in range(Ncol):
             if i < Nrow[j]:
-                print>>f, ('%g\t' % arg[j][i]),
+                print('%g\t' % arg[j][i], end='', file=f)
             else:
-                print>>f, ('\t'),
-        print>>f, ('\n'),
+                print('\t', end='', file=f)
+        print('\n', end='', file=f)
 
     # print Ncol, Nrow
     if kwarg:

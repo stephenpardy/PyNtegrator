@@ -71,9 +71,10 @@ cdef extern from *:
 def run(dict input_parameters,
         tracers=None):
     """
+    Main run function
     args:
         dict input_parameters:
-            A dictionary of input parameters. See below for structure. 
+            A dictionary of input parameters. See below for structure.
         dict tracers:
             Either None or a dictionary containing the tracer particles for each galaxy. 
                 Should have structure:
@@ -96,12 +97,12 @@ def run(dict input_parameters,
     cdef Gal *gal = <Gal *> malloc(ngals*sizeof(Gal))
     #Read galaxy parameters
     try:
-        for n, (gal_name, galaxy) in enumerate(input_parameters['galaxies'].iteritems()):
+        for n, (name, galaxy) in enumerate(input_parameters['galaxies'].items()):
             #temporary backwards compatibility check
             if 'halo_type' not in galaxy.keys():
                 galaxy['halo_type'] = 0  # default is Hernquist
-
-            gal[n].name = gal_name
+            name = name.encode('utf-8')
+            gal[n].name = name
             gal[n].mhalo = galaxy['mass']
             gal[n].minit = galaxy['mass']
             gal[n].r_halo = galaxy['rad']
@@ -150,17 +151,17 @@ def run(dict input_parameters,
 
                     except KeyError, e:
                         free(gal)
-                        print 'No tracers found for galaxy {:s}'.format(gal_name)
+                        print('No tracers found for galaxy {:s}'.format(gal_name))
                         raise KeyError, e
                 else:
                     free(gal)
-                    print 'No tracers found!'
+                    print('No tracers found!')
                     raise RuntimeError
             else:
                 gal[n].test_particles.nparticles = 0
 
     except KeyError, e:
-        free(gal)        
+        free(gal)
         print('Missing parameter from galaxy %s' % gal[n].name)
         raise KeyError, e
     # Read integration parameters
@@ -170,7 +171,8 @@ def run(dict input_parameters,
     parameters.dt0 = input_parameters['dt0']
     parameters.ngals = ngals
     parameters.snapshot = input_parameters['save_snapshot']
-    parameters.outputdir = input_parameters["outputdir"]
+    outputdir = input_parameters["outputdir"].encode('utf-8')
+    parameters.outputdir = outputdir
     parameters.variabletimesteps = input_parameters["variable_timesteps"]
     # only save test/tracer particles if there are any!
     if TRACERS:
@@ -205,7 +207,7 @@ def run(dict input_parameters,
         free(gal)
         raise RuntimeError("You must either set tpast < 0 or tfuture > 0")
 
-    print 'running, nsnaps: {:d}'.format(nsnaps)
+    print('running, nsnaps: {:d}'.format(nsnaps))
 
     err = orbit(parameters, gal, output_snapshots)
 
