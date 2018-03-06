@@ -1,6 +1,9 @@
 PyNtegrator
 ========
 
+<img alt="Astropy's Travis CI Status" src="https://travis-ci.org/stephenpardy/PyNtegrator" data-canonical-src="https://travis-ci.org/stephenpardy/PyNtegrator.svg?branch=working
+" style="max-width:100%;">
+
 General purpose Catesian galaxy orbit integration. Can evolve multiple galaxies using several halo models and an approximation of dynamical friction.
 
 Coming soon:
