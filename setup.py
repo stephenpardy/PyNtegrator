@@ -9,9 +9,9 @@ sourcefiles_probe = ['src/orbit_probe.pyx']
 
 ext_modules = [Extension("pyorbits",
                          sources=sourcefiles_pyorbit,
-                         library_dirs = ['/usr/local/lib'],
-                         libraries = ['m', 'gslcblas', 'gsl'],
-                         extra_compile_args= ['-std=c99', '-Wall', '-Wextra'],
+                         library_dirs=['/usr/local/lib', '/usr/lib'],
+                         libraries=['m', 'gsl', 'gslcblas'],
+                         extra_compile_args=['-std=c99', '-Wall', '-Wextra'],
                          include_dirs=[numpy.get_include()]
                          ),
                 Extension("orbit_probe",
