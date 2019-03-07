@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <execinfo.h>
 #include <signal.h>
+#include "Python.h"
 
 
 //integration parameters
@@ -288,7 +289,10 @@ int run_orbit(double *t,
             snapnum += 1;
             tout+=dtout;              /* increase time of output/next insertion */
         }
-
+        err = PyErr_CheckSignals();
+        if (err == -1){  // somesort of python interupt
+            return 5;
+        }
 
     } while (sign**t < sign*(tmax));
     // write final snapshot
@@ -408,7 +412,7 @@ int getforce(double *x, double *v, double *a, int gal_num, struct Gal *gal, int 
                 //Hernquist bulge
                 rx = (*x - gal[i].pos[0]);
                 ry = (*(x+1) - gal[i].pos[1]);
-                rz = (*(x+2) - gal[i].pos[2]); 
+                rz = (*(x+2) - gal[i].pos[2]);
 
                 r = sqrt(rx*rx + ry*ry + rz*rz);
 
@@ -453,13 +457,13 @@ int getforce(double *x, double *v, double *a, int gal_num, struct Gal *gal, int 
             }
 
             if (gal[i].halo_type == 1) {
-                ax += plummer_acc(r, gal[i], rz, 0.0);  // x vector                
-                ay += plummer_acc(r, gal[i], rz, 0.0);  // y vector                
-                az += plummer_acc(r, gal[i], rz, 0.0);  // z vector                
+                ax += plummer_acc(r, gal[i], rz, 0.0);  // x vector
+                ay += plummer_acc(r, gal[i], rz, 0.0);  // y vector
+                az += plummer_acc(r, gal[i], rz, 0.0);  // z vector
             } else {
                 ax += halo_acc(r, gal[i], rx, 0.0);  //x vector
                 ay += halo_acc(r, gal[i], ry, 0.0);  // y vector
-                az += halo_acc(r, gal[i], rz, 0.0);  // z vector                
+                az += halo_acc(r, gal[i], rz, 0.0);  // z vector
             }
 
             // dynamical friction
@@ -494,8 +498,8 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
                        double *ax, double *ay, double *az,  // accelerations update in function
                        struct Gal gal,
                        double m_gal, double r_gal){  // companion mass and scale length
-    
-    // We have set the maximum integration for dynamical friction at 1000kpc, it doesn't make sense to use this if 
+
+    // We have set the maximum integration for dynamical friction at 1000kpc, it doesn't make sense to use this if
     // your galaxies are further away than that
     if (r >= 1000.) return 0;
 
@@ -577,7 +581,7 @@ int dynamical_friction(double r, double vx, double vy, double vz, double vr,  //
 double tidal_condition(double x, void *params)
 {
     /*
-    Args: 
+    Args:
         Double x: truncation radius
         void *params:
             p[0]: Md (Mass of gal2 - galaxy to be truncated)

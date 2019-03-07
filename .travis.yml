@@ -8,6 +8,9 @@ notifications:
 before_install:
     - sudo apt-get install libgsl0-dev
     - pip install -q numpy cython
+    - pip install pytest
+    - pip install coverage
+    - pip install pytest-cov
 
 install:
     - python setup.py install

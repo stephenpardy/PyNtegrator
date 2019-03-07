@@ -1,5 +1,6 @@
 #encoding: utf-8
-#cython: profile=True
+#cython: language_level=3, profile=True, linetrace=True
+# distutils: define_macros=CYTHON_TRACE=1
 
 import numpy as np
 cimport numpy as np
@@ -76,7 +77,7 @@ def run(dict input_parameters,
         dict input_parameters:
             A dictionary of input parameters. See below for structure.
         dict tracers:
-            Either None or a dictionary containing the tracer particles for each galaxy. 
+            Either None or a dictionary containing the tracer particles for each galaxy.
                 Should have structure:
                 {'<GALNAME>': (np.array(<SIZEOF N, 3>), np.array(<SIZEOF N, 3>))}
                 The first element of the array is for the positions and the second element is for the velocities
@@ -101,8 +102,8 @@ def run(dict input_parameters,
             #temporary backwards compatibility check
             if 'halo_type' not in galaxy.keys():
                 galaxy['halo_type'] = 0  # default is Hernquist
-            name = name.encode('utf-8')
-            gal[n].name = name
+            name_bytes = name.encode('utf-8')
+            gal[n].name = name_bytes
             gal[n].mhalo = galaxy['mass']
             gal[n].minit = galaxy['mass']
             gal[n].r_halo = galaxy['rad']
@@ -135,6 +136,7 @@ def run(dict input_parameters,
                 gal[n].velt[i] = galaxy['vel'][i]
 
             # TESTING tracers
+
             if galaxy['tracers'] == 1:
                 TRACERS = True
                 if tracers is not None:
@@ -162,7 +164,7 @@ def run(dict input_parameters,
 
     except KeyError, e:
         free(gal)
-        print('Missing parameter from galaxy %s' % gal[n].name)
+        print('Missing parameter from galaxy {:s}'.format(gal[n].name))
         raise KeyError, e
     # Read integration parameters
     parameters.tpast = input_parameters["tpast"]

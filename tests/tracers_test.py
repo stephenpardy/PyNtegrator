@@ -45,7 +45,7 @@ base_params = {"galaxies":{"GAL1": gal1,
                   "pos_err": 1.0,
                   "vel_err": 1.0,
                   "tpast": 0.0,
-                  "tfuture": 5.0,
+                  "tfuture": 3.0,
                   "dt0": 1e-3,
                   "outputdir":"./",
                   "dtout":0.05,
@@ -61,7 +61,7 @@ init_tracers_vel1 = np.empty((1000, 3), dtype='float_')
 init_tracers_pos2 = np.empty((1000, 3), dtype='float_')
 init_tracers_vel2 = np.empty((1000, 3), dtype='float_')
 
-velx, vely, velz, posx, posy, posz = np.loadtxt('MW.csv',
+velx, vely, velz, posx, posy, posz = np.loadtxt('IC_tracers/MW.csv',
                                                 delimiter=',',
                                                 unpack=True,
                                                 skiprows=1)
@@ -82,22 +82,26 @@ init_tracers_vel2[:, 0] = velx + gal2['vel'][0]
 init_tracers_vel2[:, 1] = vely + gal2['vel'][1]
 init_tracers_vel2[:, 2] = velz
 
+def test_integration_with_tracers():
 
-output, tracers_final = pyorbits.run(base_params, {'GAL1': (init_tracers_pos1, init_tracers_vel1),
-                                                   'GAL2': (init_tracers_pos2, init_tracers_vel2)})
+    output, tracers_final = pyorbits.run(base_params, {'GAL1': (init_tracers_pos1,
+                                                              init_tracers_vel1),
+                                                     'GAL2': (init_tracers_pos2,
+                                                              init_tracers_vel2)})
 
+    assert output is not None
 
 #gal1:
-x = np.array([o[0]['pos'][0] for o in output])
-y = np.array([o[0]['pos'][1] for o in output])
-plt.plot(x, y, color='black')
+#x = np.array([o[0]['pos'][0] for o in output])
+#y = np.array([o[0]['pos'][1] for o in output])
+#plt.plot(x, y, color='black')
 
 #gal2:
-x = np.array([o[1]['pos'][0] for o in output])
-y = np.array([o[1]['pos'][1] for o in output])
-plt.plot(x, y, color='red')
+#x = np.array([o[1]['pos'][0] for o in output])
+#y = np.array([o[1]['pos'][1] for o in output])
+#plt.plot(x, y, color='red')
 
-plt.plot(tracers_final[:1000, 0], tracers_final[:1000, 1], 'k.')
-plt.plot(tracers_final[1000:, 0], tracers_final[1000:, 1], 'r.')
+#plt.plot(tracers_final[:1000, 0], tracers_final[:1000, 1], 'k.')
+#plt.plot(tracers_final[1000:, 0], tracers_final[1000:, 1], 'r.')
 
-plt.show()
+#plt.show()

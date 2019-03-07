@@ -4,8 +4,8 @@ from Cython.Distutils import build_ext
 from Cython.Build import cythonize
 import numpy
 
-sourcefiles_pyorbit = ['src/pyorbits.pyx', 'src/halo.c', 'src/plummer.c']
-sourcefiles_probe = ['src/orbit_probe.pyx']
+sourcefiles_pyorbit = ['pyorbits/pyorbits.pyx', 'pyorbits/halo.c', 'pyorbits/plummer.c']
+sourcefiles_probe = ['pyorbits/orbit_probe.pyx']
 
 ext_modules = [Extension("pyorbits",
                          sources=sourcefiles_pyorbit,
@@ -19,7 +19,10 @@ ext_modules = [Extension("pyorbits",
                           )]
 
 setup(
-    name = 'Converter',
+    name = 'pyorbits',
+    version='0.0.1',
+    description='Restricted Few-body integration in Python.',
+    author='Stephen Pardy',
     cmdclass = {'build_ext': build_ext},
     ext_modules = cythonize(ext_modules),
     include_dirs=[numpy.get_include()]

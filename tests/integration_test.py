@@ -1,4 +1,3 @@
-import unittest
 import numpy as np
 import pyorbits
 import copy
@@ -55,15 +54,10 @@ base_params = {"galaxies":{"GAL1": gal1,
                   "output_tracers": 0}
 
 
-class TestIntegration(unittest.TestCase):
-    def test_equal_mass(self):
-        params = copy.deepcopy(base_params)
-        output = pyorbits.run(params)
-        #check last snapshot for each galaxy
-        #They should be equal and opposite
-        self.assertEqual(output[-1][0]['pos'], [35.88936905187977, -31.04336783591637, 0.0])
-        self.assertEqual(output[-1][1]['pos'], [-35.88936905187977, 31.04336783591637, 0.0])
-
-
-if __name__ == '__main__':
-    unittest.main()
+def test_integration():
+    #params = copy.deepcopy(base_params)
+    output = pyorbits.run(base_params)
+    #check last snapshot for each galaxy
+    #They should be equal and opposite
+    assert output[-1][0]['pos'] == [35.88936905187977, -31.04336783591637, 0.0]
+    assert output[-1][1]['pos'] == [-35.88936905187977, 31.04336783591637, 0.0]

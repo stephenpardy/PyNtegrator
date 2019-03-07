@@ -1,16 +1,18 @@
 PyNtegrator
 ========
 
-![PyNtegratos's Travis CI Status](https://travis-ci.org/stephenpardy/PyNtegrator.svg?branch=working)
+![PyNtegrators's Travis CI Status](https://travis-ci.org/stephenpardy/PyNtegrator.svg?branch=working)
 
 
 General purpose Catesian galaxy orbit integration. Can evolve multiple galaxies using several halo models and an approximation of dynamical friction.
 
 Coming soon:
-    Examples, tests, and initial conditions.
+    Examples, tests.
 
 Requires:
+
 numpy
+
 GSL
 
 Fork from the McOrbits project, originally written by Ana Bonca and Andreas Kuepper. 
